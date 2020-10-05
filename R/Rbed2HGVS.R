@@ -57,12 +57,18 @@ Rbed2HGVS <- function(bedfile, db) {
 
     if (!isEmpty(miss_s)) {
       df_miss_s <- getUsDs(missing_tx = miss_s, bedfile = bedfile_start[bed_i], cds = cds_by_tx)
-      s <- rbind(s[[bed_i]],df_miss_s)
+      s[[bed_i]] <- rbind(
+        s[[bed_i]][complete.cases(s[[bed_i]]),],
+        df_miss_s
+        )
     }
 
     if (!isEmpty(miss_e)) {
       df_miss_e <- getUsDs(missing_tx = miss_e, bedfile = bedfile_end[bed_i], cds = cds_by_tx)
-      e <- rbind(e[[bed_i]],df_miss_e)
+      e[[bed_i]] <- rbind(
+        e[[bed_i]][complete.cases(e[[bed_i]]),],
+        df_miss_e
+        )
     }
 
     df <- merge.data.frame(
@@ -71,7 +77,9 @@ Rbed2HGVS <- function(bedfile, db) {
       by = "tx",
       all = TRUE, suffixes = c(".start",".end"))
 
-    cbind(chr, start, end, df) %>% return()
+    gene <- getSymbolRefseq(refSeqId = df$tx)[,"SYMBOL"]
+
+    cbind(chr, start, end, gene, df) %>% return()
     }) %>%
     do.call(rbind, .)
 }
@@ -131,12 +139,11 @@ getHgvs <- function(bedfile, cds) {
       })
 
       tx   <- names(cds_ol[[bedln]])
-      gene <- getSymbolRefseq(refSeqId = tx)[,"SYMBOL"]
+      #gene <- getSymbolRefseq(refSeqId = tx)[,"SYMBOL"]
       exon <- lapply(cds_annot, function(x) {x$exon_rank}) %>% unlist()
-      hgvs  <- lapply(cds_annot, function(x) {x$cds}) %>% unlist()
+      hgvs  <- lapply(cds_annot, function(x) {x$cds}) %>% unlist() %>% paste0("c.", .)
     } else {
       tx   <- NA
-      gene <- NA
       exon <- NA
       hgvs <- NA
     }
