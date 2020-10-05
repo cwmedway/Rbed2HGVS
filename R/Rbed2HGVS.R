@@ -34,6 +34,7 @@ Rbed2HGVS <- function(bedfile, db) {
   bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
   bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
+  # get cds info for start and end of bedfile
   s <- getHgvs(bedfile = bedfile_start, cds = cds_by_tx)
   e <- getHgvs(bedfile = bedfile_end, cds = cds_by_tx)
 
@@ -43,6 +44,26 @@ Rbed2HGVS <- function(bedfile, db) {
     chr   <- GenomicRanges::seqnames(bedfile[bed_i]) %>% as.vector()
     start <- GenomicRanges::start(bedfile[bed_i])
     end   <- GenomicRanges::end(bedfile[bed_i])
+
+    # check if tx/start has a corresponding tx/end - ignore NA
+    s_tx <- s[[bed_i]]$tx %>% as.vector() %>% .[!is.na(.)]
+    e_tx <- e[[bed_i]]$tx %>% as.vector() %>% .[!is.na(.)]
+
+    # tx missing cds for end
+    miss_e <- s_tx[!(s_tx %in% e_tx)]
+
+    # tx missing cds for end
+    miss_s <-e_tx[!(e_tx %in% s_tx)]
+
+    if (!isEmpty(miss_s)) {
+      df_miss_s <- getUsDs(missing_tx = miss_s, bedfile = bedfile_start[bed_i], cds = cds_by_tx)
+      s <- rbind(s[[bed_i]],df_miss_s)
+    }
+
+    if (!isEmpty(miss_e)) {
+      df_miss_e <- getUsDs(missing_tx = miss_e, bedfile = bedfile_end[bed_i], cds = cds_by_tx)
+      e <- rbind(e[[bed_i]],df_miss_e)
+    }
 
     df <- merge.data.frame(
       x = s[[bed_i]],
@@ -56,13 +77,42 @@ Rbed2HGVS <- function(bedfile, db) {
 }
 
 
+getUsDs <- function(missing_tx, bedfile, cds) {
+
+  out <- lapply(missing_tx, function(tx) {
+
+    out <- GenomicRanges::distance(x = bedfile, y = cds[[tx]])
+    dist <- min(out)
+    side <- GenomicRanges::follow(subject = bedfile, x = cds[[tx]])[which.min(out)]
+    exon <- cds[[tx]]$exon_rank[which.min(out)]
+
+    if (is.na(side)) {
+      # interval is downstream of exon
+      dist <- (0 - dist)
+      # cds should not include this exon
+      entry_cds <- 1 + GenomicRanges::width(cds[[tx]][1:which.min(out)-1]) %>% sum
+      hgvs <- paste0("c.", entry_cds, "-", dist)
+    } else {
+      # interval is upstream of exon
+      # cds includes exon
+      entry_cds <- GenomicRanges::width(cds[[tx]][1:which.min(out)]) %>% sum
+      hgvs <- paste0("c.", entry_cds, "+", dist)
+    }
+
+    data.frame(tx, exon, hgvs) %>% return()
+
+    })
+
+  do.call(rbind, out) %>%
+    return()
+  }
 
 getHgvs <- function(bedfile, cds) {
 
-  #
+  # overlap with cds
   ol <- IRanges::findOverlaps(query = bedfile, subject = cds)
 
-  #
+  # list transcripts indexed by bed entry
   cds_ol <- lapply(seq(bedfile), function(x) {
     S4Vectors::queryHits(ol) %in% x %>%
       ol[.] %>%
@@ -91,7 +141,7 @@ getHgvs <- function(bedfile, cds) {
       hgvs <- NA
     }
 
-    data.frame(gene, tx, exon, hgvs)
+    data.frame(tx, exon, hgvs)
   })
 
 }
