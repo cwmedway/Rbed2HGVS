@@ -98,15 +98,15 @@ getUsDs <- function(missing_tx, bedfile, cds) {
     if (GenomicRanges::strand(cds[[tx]])[1] %>% as.vector() == '+') {
       # event occuring upstream of cds
       if (is.na(side)) {
-        # hgvs should not include nearest exon. +1 because in relation to first base of
-        # nearest exon
-        entry_cds <- 1 + GenomicRanges::width(cds[[tx]][1:which.min(out)-1]) %>% sum
-        hgvs <- paste0("c.", entry_cds, "-", dist)
-      } else {
         # interval is downstream of exon
         # hgvs includes nearest exon
         entry_cds <- GenomicRanges::width(cds[[tx]][1:which.min(out)]) %>% sum
         hgvs <- paste0("c.", entry_cds, "+", dist)
+      } else {
+        # hgvs should not include nearest exon. +1 because in relation to first base of
+        # nearest exon
+        entry_cds <- 1 + GenomicRanges::width(cds[[tx]][1:which.min(out)-1]) %>% sum
+        hgvs <- paste0("c.", entry_cds, "-", dist+1)
       }
     } else {
       # if negative strand
@@ -114,7 +114,7 @@ getUsDs <- function(missing_tx, bedfile, cds) {
         # interval is downstream of exon
         # hgvs should include this exon
         entry_cds <- GenomicRanges::width(cds[[tx]][1:which.min(out)]) %>% sum
-        hgvs <- paste0("c.", entry_cds, "+", dist)
+        hgvs <- paste0("c.", entry_cds, "+", dist + 1)
       } else {
         # interval is upstream of exon
         # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
@@ -124,11 +124,7 @@ getUsDs <- function(missing_tx, bedfile, cds) {
 
     }
 
-
-
-
     data.frame(tx, exon, hgvs) %>% return()
-
     })
 
   do.call(rbind, out) %>%
@@ -217,5 +213,5 @@ getSymbolRefseq <- function(refSeqId) {
 
 }
 
-out <- Rbed2HGVS(bedfile = './data/test.bed', db = './data/ucsc_hg19_ncbiRefSeq.sqlite')
+out <- Rbed2HGVS(bedfile = './data/positive-strand-downstream.bed', db = './data/ucsc_hg19_ncbiRefSeq.sqlite')
 
