@@ -94,18 +94,38 @@ getUsDs <- function(missing_tx, bedfile, cds) {
     side <- GenomicRanges::follow(subject = bedfile, x = cds[[tx]])[which.min(out)]
     exon <- cds[[tx]]$exon_rank[which.min(out)]
 
-    if (is.na(side)) {
-      # interval is downstream of exon
-      dist <- (0 - dist)
-      # cds should not include this exon
-      entry_cds <- 1 + GenomicRanges::width(cds[[tx]][1:which.min(out)-1]) %>% sum
-      hgvs <- paste0("c.", entry_cds, "-", dist)
+    # if positive strand
+    if (GenomicRanges::strand(cds[[tx]])[1] %>% as.vector() == '+') {
+      # event occuring upstream of cds
+      if (is.na(side)) {
+        # hgvs should not include nearest exon. +1 because in relation to first base of
+        # nearest exon
+        entry_cds <- 1 + GenomicRanges::width(cds[[tx]][1:which.min(out)-1]) %>% sum
+        hgvs <- paste0("c.", entry_cds, "-", dist)
+      } else {
+        # interval is downstream of exon
+        # hgvs includes nearest exon
+        entry_cds <- GenomicRanges::width(cds[[tx]][1:which.min(out)]) %>% sum
+        hgvs <- paste0("c.", entry_cds, "+", dist)
+      }
     } else {
-      # interval is upstream of exon
-      # cds includes exon
-      entry_cds <- GenomicRanges::width(cds[[tx]][1:which.min(out)]) %>% sum
-      hgvs <- paste0("c.", entry_cds, "+", dist)
+      # if negative strand
+      if (is.na(side)) {
+        # interval is downstream of exon
+        # hgvs should include this exon
+        entry_cds <- GenomicRanges::width(cds[[tx]][1:which.min(out)]) %>% sum
+        hgvs <- paste0("c.", entry_cds, "+", dist)
+      } else {
+        # interval is upstream of exon
+        # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
+        entry_cds <- 1 + GenomicRanges::width(cds[[tx]][1:which.min(out) - 1]) %>% sum
+        hgvs <- paste0("c.", entry_cds, "-", dist + 1) #
+      }
+
     }
+
+
+
 
     data.frame(tx, exon, hgvs) %>% return()
 
@@ -166,13 +186,22 @@ mapCoordToCds <- function(range, cds) {
   cds_hit_ln <-cds[S4Vectors::subjectHits(hits)]
 
   # how far into exon hit is bed entry
-  cds_width_hit <- IRanges::end(cds_hit_ln) - IRanges::start(range)
+  # for positive strand
+  if (GenomicRanges::strand(cds_hit_ln) %>% as.vector() == '+') {
+    cds_width_hit <- IRanges::start(range) - IRanges::start(cds_hit_ln)
+    # accum width of cds upstream of exon for + strand
+    cds_width_us <- IRanges::width(cds)[1:(S4Vectors::subjectHits(hits)) - 1] %>% sum()
+  } else {
+    # negative strand
+    cds_width_hit <- IRanges::end(cds_hit_ln) - IRanges::start(range)
+    cds_width_us <- IRanges::width(cds)[1:(S4Vectors::subjectHits(hits)) - 1] %>% sum()
+  }
 
-  # accum width of cds upstream of exon
-  cds_width_us <- IRanges::width(cds)[1:(S4Vectors::subjectHits(hits)) - 1] %>% sum()
+
+
 
   # total cds
-  cds_width_final <- sum(cds_width_us, cds_width_hit)
+  cds_width_final <- sum(cds_width_us, cds_width_hit) + 1
 
   cds_hit_ln$cds <- cds_width_final
 
