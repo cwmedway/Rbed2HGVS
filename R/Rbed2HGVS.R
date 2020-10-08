@@ -18,6 +18,15 @@
 
 
 
+
+#' Rbed2HGVS
+#'
+#' @param bedfile path to bedfile
+#' @param db path to .sqlite file
+#'
+#' @return data.frame
+#' @export
+#' @importFrom magrittr %>%
 Rbed2HGVS <- function(bedfile, db) {
 
   # load bedfile
@@ -58,7 +67,7 @@ Rbed2HGVS <- function(bedfile, db) {
     if (!isEmpty(miss_s)) {
       df_miss_s <- getUsDs(missing_tx = miss_s, bedfile = bedfile_start[bed_i], cds = cds_by_tx)
       s[[bed_i]] <- rbind(
-        s[[bed_i]][complete.cases(s[[bed_i]]),],
+        s[[bed_i]][stats::complete.cases(s[[bed_i]]),],
         df_miss_s
         )
     }
@@ -85,6 +94,13 @@ Rbed2HGVS <- function(bedfile, db) {
 }
 
 
+#' getUsDs
+#'
+#' @param missing_tx character vector of transcript names
+#' @param bedfile GRanges object containing a single bedfile
+#' @param cds
+#'
+#' @return
 getUsDs <- function(missing_tx, bedfile, cds) {
 
   out <- lapply(missing_tx, function(tx) {
@@ -173,6 +189,12 @@ getHgvs <- function(bedfile, cds) {
 
 
 
+#' mapCoordToCds
+#'
+#' @param range
+#' @param cds
+#'
+#' @return
 mapCoordToCds <- function(range, cds) {
 
   # find which exon overlaps
@@ -193,9 +215,6 @@ mapCoordToCds <- function(range, cds) {
     cds_width_us <- IRanges::width(cds)[1:(S4Vectors::subjectHits(hits)) - 1] %>% sum()
   }
 
-
-
-
   # total cds
   cds_width_final <- sum(cds_width_us, cds_width_hit) + 1
 
@@ -204,14 +223,21 @@ mapCoordToCds <- function(range, cds) {
   return(cds_hit_ln)
 }
 
+
+#' getSymbolRefSeq
+#'
+#' @param refSeqId
+#'
+#' @return
+#' @import org.Hs.eg.db
 getSymbolRefseq <- function(refSeqId) {
 
   # remove suffix
   stringr::str_remove(string = refSeqId, pattern = "\\.\\d+") %>%
-    AnnotationDbi::select(x = org.Hs.eg.db, keytype = "REFSEQ", keys = ., columns = "SYMBOL") %>%
+    AnnotationDbi::select(org.Hs.eg.db, keytype = "REFSEQ", keys = ., columns = "SYMBOL") %>%
     return()
 
 }
 
-out <- Rbed2HGVS(bedfile = './data/positive-strand-downstream.bed', db = './data/ucsc_hg19_ncbiRefSeq.sqlite')
+#out <- Rbed2HGVS(bedfile = './data/positive-strand-downstream.bed', db = './data/ucsc_hg19_ncbiRefSeq.sqlite')
 

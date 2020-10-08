@@ -15,5 +15,6 @@ Imports:
     ensembldb,
     readr,
     magrittr,
-    rtracklayer
+    rtracklayer,
+    org.Hs.eg.db
 RoxygenNote: 7.1.1
