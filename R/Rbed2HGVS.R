@@ -1,88 +1,79 @@
 
-# parseCmdArgs <- function() {
-#
-#   parser <- argparse::ArgumentParser(description="Add Transcript, CDS & Exon annotations to bedfile")
-#
-#   parser$add_argument("-b", "--bedfile", help="path to BED file", required=T, type="character")
-#   parser$add_argument("-o", "--outname", help="output file name", default="hgvs", type="character")
-#   parser$add_argument("-O", "--outdir", help="output file directory", default="./", type="character")
-#
-#   parser$parse_args() %>%
-#     return()
-# }
+makeCdsDb <- function() {
 
-# ucsc_hg19_ncbiRefSeq <- GenomicFeatures::makeTxDbFromUCSC(genome = "hg19", tablename = "ncbiRefSeq") %>%
-#   GenomeInfoDb::keepStandardChromosomes(.)
-# GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-# AnnotationDbi::saveDb(x = ucsc_hg19_ncbiRefSeq, file = './data/ucsc_hg19_ncbiRefSeq.sqlite')
+  ucsc_hg19_ncbiRefSeq <- GenomicFeatures::makeTxDbFromUCSC(genome = "hg19", tablename = "ncbiRefSeq") %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+  AnnotationDbi::saveDb(x = ucsc_hg19_ncbiRefSeq, file = './data/ucsc_hg19_ncbiRefSeq.sqlite')
+}
 
-
-
-
-#' Rbed2HGVS
+#' appends an additional column of interval in HGVS nomenclature to a bedfile
 #'
 #' @param bedfile path to bedfile
-#' @param db path to .sqlite file
 #'
-#' @return data.frame
+#' @return GRanges object with HGVS appended
 #' @export
 #' @importFrom magrittr %>%
-Rbed2HGVS <- function(bedfile, db) {
+Rbed2HGVS <- function(bedfile, db = './data/ucsc_hg19_ncbiRefSeq.sqlite') {
 
   # load bedfile
   bedfile <- rtracklayer::import.bed(bedfile)
 
-  # loadDb
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db)
+  # load refseq database
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  # convert chr to NCBI style
   GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
 
-  # get cds fron db
+  # get cds indexed by refseq fron db
   cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
 
-  # make separate ranges object for start and end
+  # make separate ranges object for start and end coordinates
   bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
   bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
   # get cds info for start and end of bedfile
-  s <- getHgvs(bedfile = bedfile_start, cds = cds_by_tx)
-  e <- getHgvs(bedfile = bedfile_end, cds = cds_by_tx)
+  hgvs_start <- getHgvs(bedfile = bedfile_start, cds = cds_by_tx)
+  hgvs_end   <- getHgvs(bedfile = bedfile_end, cds = cds_by_tx)
 
   # combine start and end for each bed entry
   lapply(seq(bedfile), function(bed_i) {
 
+    # get bed line info
     chr   <- GenomicRanges::seqnames(bedfile[bed_i]) %>% as.vector()
     start <- GenomicRanges::start(bedfile[bed_i])
     end   <- GenomicRanges::end(bedfile[bed_i])
 
     # check if tx/start has a corresponding tx/end - ignore NA
-    s_tx <- s[[bed_i]]$tx %>% as.vector() %>% .[!is.na(.)]
-    e_tx <- e[[bed_i]]$tx %>% as.vector() %>% .[!is.na(.)]
+    s_tx <- hgvs_start[[bed_i]]$tx %>% as.vector() %>% .[!is.na(.)]
+    e_tx <- hgvs_end[[bed_i]]$tx %>% as.vector() %>% .[!is.na(.)]
 
-    # tx missing cds for end
+    # get tx missing cds for end
     miss_e <- s_tx[!(s_tx %in% e_tx)]
 
-    # tx missing cds for end
+    # get tx missing cds for end
     miss_s <-e_tx[!(e_tx %in% s_tx)]
 
     if (!isEmpty(miss_s)) {
       df_miss_s <- getUsDs(missing_tx = miss_s, bedfile = bedfile_start[bed_i], cds = cds_by_tx)
-      s[[bed_i]] <- rbind(
-        s[[bed_i]][stats::complete.cases(s[[bed_i]]),],
+      hgvs_start[[bed_i]] <- rbind(
+        hgvs_start[[bed_i]][stats::complete.cases(hgvs_start[[bed_i]]),],
         df_miss_s
         )
     }
 
     if (!isEmpty(miss_e)) {
       df_miss_e <- getUsDs(missing_tx = miss_e, bedfile = bedfile_end[bed_i], cds = cds_by_tx)
-      e[[bed_i]] <- rbind(
-        e[[bed_i]][complete.cases(e[[bed_i]]),],
+      hgvs_end[[bed_i]] <- rbind(
+        hgvs_end[[bed_i]][complete.cases(hgvs_end[[bed_i]]),],
         df_miss_e
         )
     }
 
     df <- merge.data.frame(
-      x = s[[bed_i]],
-      y = e[[bed_i]],
+      x = hgvs_start[[bed_i]],
+      y = hgvs_end[[bed_i]],
       by = "tx",
       all = TRUE, suffixes = c(".start",".end"))
 
@@ -147,33 +138,37 @@ getUsDs <- function(missing_tx, bedfile, cds) {
     return()
   }
 
-getHgvs <- function(bedfile, cds) {
 
-  # overlap with cds
-  ol <- IRanges::findOverlaps(query = bedfile, subject = cds)
+getHgvs <- function(bedfile, cds_by_tx) {
 
-  # list transcripts indexed by bed entry
+  # index of bed overlap with cds
+  bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = cds_by_tx)
+
+  # extract transcripts and index by bed entry
   cds_ol <- lapply(seq(bedfile), function(x) {
-    S4Vectors::queryHits(ol) %in% x %>%
-      ol[.] %>%
+    S4Vectors::queryHits(bed_ol_tx) %in% x %>%
+      bed_ol_tx[.] %>%
       S4Vectors::subjectHits(.) %>%
-      cds[.]
+      cds_by_tx[.]
   })
 
-  # loop over bed entry
+  # loop over each element (bed entry)
   lapply(seq(cds_ol), function(bedln) {
 
+    # if not empty
     if(!isEmpty(cds_ol)[bedln]) {
 
-      # loop over tx entry - get cds
+      # all transcripts for bed entry
+      tx   <- names(cds_ol[[bedln]])
+
+      # loop over tx entry - get exon & hgvs
       cds_annot <- lapply(names(cds_ol[[bedln]]), function(tx) {
         mapCoordToCds(range = bedfile[bedln], cds = cds_ol[[bedln]][[tx]])
       })
 
-      tx   <- names(cds_ol[[bedln]])
-      #gene <- getSymbolRefseq(refSeqId = tx)[,"SYMBOL"]
-      exon <- lapply(cds_annot, function(x) {x$exon_rank}) %>% unlist()
+      exon  <- lapply(cds_annot, function(x) {x$exon_rank}) %>% unlist()
       hgvs  <- lapply(cds_annot, function(x) {x$cds}) %>% unlist() %>% paste0("c.", .)
+
     } else {
       tx   <- NA
       exon <- NA
@@ -184,8 +179,6 @@ getHgvs <- function(bedfile, cds) {
   })
 
 }
-
-
 
 
 
@@ -238,6 +231,4 @@ getSymbolRefseq <- function(refSeqId) {
     return()
 
 }
-
-#out <- Rbed2HGVS(bedfile = './data/positive-strand-downstream.bed', db = './data/ucsc_hg19_ncbiRefSeq.sqlite')
 
