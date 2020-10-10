@@ -2,18 +2,16 @@
 % Please edit documentation in R/Rbed2HGVS.R
 \name{Rbed2HGVS}
 \alias{Rbed2HGVS}
-\title{Rbed2HGVS}
+\title{appends an additional column of interval in HGVS nomenclature to a bedfile}
 \usage{
-Rbed2HGVS(bedfile, db)
+Rbed2HGVS(bedfile, db = "./data/ucsc_hg19_ncbiRefSeq.sqlite")
 }
 \arguments{
 \item{bedfile}{path to bedfile}
-
-\item{db}{path to .sqlite file}
 }
 \value{
-data.frame
+GRanges object with HGVS appended
 }
 \description{
-Rbed2HGVS
+appends an additional column of interval in HGVS nomenclature to a bedfile
 }

@@ -4,7 +4,7 @@
 \alias{mapCoordToCds}
 \title{mapCoordToCds}
 \usage{
-mapCoordToCds(range, cds)
+mapCoordToCds(bedfile, cds)
 }
 \arguments{
 \item{cds}{}
