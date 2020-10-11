@@ -37,6 +37,7 @@ Rbed2HGVS <- function(bedfile, db = './data/ucsc_hg19_ncbiRefSeq.sqlite') {
   return(hgvs)
 }
 
+
 getHgvs <- function(bedfile, cds_by_tx) {
 
   # index of bed overlap with cds
