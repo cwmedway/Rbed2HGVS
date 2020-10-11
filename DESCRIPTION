@@ -16,5 +16,7 @@ Imports:
     magrittr,
     rtracklayer,
     org.Hs.eg.db,
-    GenomicFeatures
+    GenomicFeatures,
+    IRanges,
+    GenomicRanges
 RoxygenNote: 7.1.1
