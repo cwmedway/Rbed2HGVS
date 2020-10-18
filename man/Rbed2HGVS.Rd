@@ -4,13 +4,18 @@
 \alias{Rbed2HGVS}
 \title{appends an additional column of interval in HGVS nomenclature to a bedfile}
 \usage{
-Rbed2HGVS(bedfile, db = "./data/ucsc_hg19_ncbiRefSeq.sqlite")
+Rbed2HGVS(bedfile, db, preferred_tx = NA)
 }
 \arguments{
 \item{bedfile}{path to bedfile}
+
+\item{db}{ucsc TxDb object}
+
+\item{preferred_tx}{path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
+where there are multiple preferred transcripts from a gene, these should one-row per transcript.}
 }
 \value{
-GRanges object with HGVS appended
+data.frame object with refseqid, gene, exon and hgvs appended
 }
 \description{
 appends an additional column of interval in HGVS nomenclature to a bedfile

@@ -1,8 +1,10 @@
 test_that("cds gap that finishes downstream on positive strand", {
 
+  print(getwd())
+
   out <- Rbed2HGVS(
-    bedfile = '/home/chris/Apps/Rbed2HGVS/data/positive-strand-downstream.bed',
-    db = '/home/chris/Apps/Rbed2HGVS/data/ucsc_hg19_ncbiRefSeq.sqlite'
+    bedfile = '../../inst/extdata/positive-strand-downstream.bed',
+    db = '../../inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
     )
 
   testthat::expect_equal(out$hgvs_start %>% as.vector(), "c.6829")
@@ -14,8 +16,8 @@ test_that("cds gap that finishes downstream on positive strand", {
 test_that("cds gap that finishes downstream on negative strand", {
 
   out <- Rbed2HGVS(
-    bedfile = '/home/chris/Apps/Rbed2HGVS/data/negative-strand-downstream.bed',
-    db = '/home/chris/Apps/Rbed2HGVS/data/ucsc_hg19_ncbiRefSeq.sqlite'
+    bedfile = '../../inst/extdata/negative-strand-downstream.bed',
+    db = '../../inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
   )
 
   testthat::expect_equal(
@@ -37,8 +39,8 @@ test_that("cds gap that finishes downstream on negative strand", {
 test_that("cds gap that finishes upstream on positive strand", {
 
   out <- Rbed2HGVS(
-    bedfile = '/home/chris/Apps/Rbed2HGVS/data/positive-strand-upstream.bed',
-    db = '/home/chris/Apps/Rbed2HGVS/data/ucsc_hg19_ncbiRefSeq.sqlite'
+    bedfile = '../../inst/extdata/positive-strand-upstream.bed',
+    db = '../../inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
   )
 
   testthat::expect_equal(out$hgvs_start %>% as.vector(), "c.1910-30")
@@ -51,8 +53,8 @@ test_that("cds gap that finishes upstream on positive strand", {
 test_that("cds gap that finishes upstream on negative strand", {
 
   out <- Rbed2HGVS(
-    bedfile = '/home/chris/Apps/Rbed2HGVS/data/negative-strand-upstream.bed',
-    db = '/home/chris/Apps/Rbed2HGVS/data/ucsc_hg19_ncbiRefSeq.sqlite'
+    bedfile = '../../inst/extdata/negative-strand-upstream.bed',
+    db = '../../inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
   )
 
   testthat::expect_equal(
@@ -74,8 +76,8 @@ test_that("cds gap that finishes upstream on negative strand", {
 test_that("cds gap that encompasses whole exon", {
 
   out <- Rbed2HGVS(
-    bedfile = '/home/chris/Apps/Rbed2HGVS/data/whole-exon-gap.bed',
-    db = '/home/chris/Apps/Rbed2HGVS/data/ucsc_hg19_ncbiRefSeq.sqlite'
+    bedfile = '../../inst/extdata/whole-exon-gap.bed',
+    db = '../../inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
   )
 
   testthat::expect_equal(

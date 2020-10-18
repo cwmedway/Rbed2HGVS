@@ -10,11 +10,15 @@
 #' appends an additional column of interval in HGVS nomenclature to a bedfile
 #'
 #' @param bedfile path to bedfile
+#' @param db ucsc TxDb object
+#' @param preferred_tx path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
+#' where there are multiple preferred transcripts from a gene, these should one-row per transcript.
 #'
-#' @return GRanges object with HGVS appended
+#' @return data.frame object with refseqid, gene, exon and hgvs appended
 #' @export
 #' @importFrom magrittr %>%
-Rbed2HGVS <- function(bedfile, db = './data/ucsc_hg19_ncbiRefSeq.sqlite') {
+#' @import org.Hs.eg.db
+Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
 
   # load bedfile
   bedfile <- rtracklayer::import.bed(bedfile)
@@ -29,14 +33,56 @@ Rbed2HGVS <- function(bedfile, db = './data/ucsc_hg19_ncbiRefSeq.sqlite') {
   # get cds indexed by refseq fron db
   cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
 
+
+  if (is.character(preferred_tx)) {
+    # read preferred transcripts (ptx)
+    df_ptx <- read.table(file = preferred_tx, header = F, stringsAsFactors = F)
+    # ptx name without version suffix
+    ptx_prefix <- stringr::str_remove(string = df_ptx[,2], pattern = '\\.\\d+')
+    # names of tx in RefSeq DB
+    cds_name   <- names(cds_by_tx)
+    cds_prefix <- stringr::str_remove(string = cds_name, pattern = "\\.\\d+")
+
+    # find preferred tx in RedSeq DB
+    m <- match(x = ptx_prefix, table = cds_prefix)
+
+    # preferred tx not in RefSeq DB
+    ptx_missing <- df_ptx[is.na(m),]
+
+    if (dim(ptx_missing)[1] > 0) {
+      warning("The following preferred transcripts are missing from the RefSeq DB")
+      warning( paste0(ptx_missing[,1], " ", ptx_missing[,2]) )
+    }
+
+    # df containing only matched ptx
+    ptx_not_missing <- df_ptx[!is.na(m),]
+    # extract full tx names from RefSeq DB (inc version)
+    cds_not_missing <- cds_name[m[!is.na(m)]]
+    # check if versions match
+    not_same_version <- !(ptx_not_missing[,2] %in% cds_not_missing)
+
+    if (sum(not_same_version) > 0) {
+      warning("The following preferred transcripts are a different version from the RefSeq DB:")
+      warning( paste0(
+        ptx_not_missing[not_same_version,1],
+        " ",
+        ptx_not_missing[not_same_version,2],
+        " ---> DB:",
+        cds_not_missing[not_same_version]
+      ) )
+    }
+
+    cds_by_tx <- cds_by_tx[m[!is.na(m)]]
+  }
+
   # get cds info for start and end of bedfile
   hgvs <- getHgvs(bedfile = bedfile, cds = cds_by_tx) %>% do.call(rbind, .)
 
+  #append HGMD
   hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
 
   return(hgvs)
 }
-
 
 getHgvs <- function(bedfile, cds_by_tx) {
 
@@ -56,38 +102,40 @@ getHgvs <- function(bedfile, cds_by_tx) {
   # loop over each element (bed entry)
   lapply(seq(cds_ol), function(bedln) {
 
+    # will be first three columns of output
     chr   <- GenomicRanges::seqnames(bedfile[bedln]) %>% as.vector()
     start <- GenomicRanges::start(bedfile[bedln])
     end   <- GenomicRanges::end(bedfile[bedln])
 
-    # if not empty
+    # if bed entry overlaps at least one transcript
     if(!isEmpty(cds_ol)[bedln]) {
 
-      # loop over tx index - get exon & hgvs
+      # loop over each tx by index - get exon & hgvs
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
         mapCoordToCds(bedfile = bedfile[bedln], cds = cds_by_tx[[tx_i]])
       })
 
+      # parse fields to make df
       tx         <- names(cds_by_tx)[cds_ol[[bedln]]]
       hgvs_start <- lapply(cds_annot, function(x) {x$start$hgvs}) %>% unlist()
       hgvs_end   <- lapply(cds_annot, function(x) {x$end$hgvs}) %>% unlist()
       exon_start <- lapply(cds_annot, function(x) {x$start$exon_rank}) %>% unlist()
       exon_end   <- lapply(cds_annot, function(x) {x$end$exon_rank}) %>% unlist()
+    } else {
+      # no overlapping tx
+      tx <- NA
+      hgvs_start <- NA
+      hgvs_end   <- NA
+      exon_start <- NA
+      exon_end   <- NA
     }
 
-    data.frame(chr, start, end, tx, hgvs_start, exon_start, hgvs_end, exon_end)
+    data.frame(chr, start, end, tx, hgvs_start, exon_start, hgvs_end, exon_end) %>%
+      return()
   })
-
 }
 
 
-
-#' mapCoordToCds
-#'
-#' @param range
-#' @param cds
-#'
-#' @return
 mapCoordToCds <- function(bedfile, cds) {
 
   # make separate ranges object for start and end coordinates
@@ -175,12 +223,6 @@ getHgvs2 <- function(bedfile, cds) {
 }
 
 
-#' getSymbolRefSeq
-#'
-#' @param refSeqId
-#'
-#' @return
-#' @import org.Hs.eg.db
 getSymbolRefseq <- function(refSeqId) {
 
   # remove suffix

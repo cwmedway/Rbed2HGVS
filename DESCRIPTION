@@ -18,5 +18,9 @@ Imports:
     org.Hs.eg.db,
     GenomicFeatures,
     IRanges,
-    GenomicRanges
+    GenomicRanges,
+    S4Vectors,
+    AnnotationDbi,
+    GenomeInfoDb,
+    stringr
 RoxygenNote: 7.1.1
