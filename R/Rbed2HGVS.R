@@ -104,7 +104,7 @@ getHgvs <- function(bedfile, cds_by_tx) {
 
     # will be first three columns of output
     chr   <- GenomicRanges::seqnames(bedfile[bedln]) %>% as.vector()
-    start <- GenomicRanges::start(bedfile[bedln])
+    start <- GenomicRanges::start(bedfile[bedln]) - 1
     end   <- GenomicRanges::end(bedfile[bedln])
 
     # if bed entry overlaps at least one transcript
