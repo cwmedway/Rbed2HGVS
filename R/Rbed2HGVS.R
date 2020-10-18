@@ -180,14 +180,14 @@ getHgvs2 <- function(bedfile, cds) {
       cds_width_hit <- (1 + IRanges::start(bedfile) - IRanges::start(near_ex))
       # accum width of cds upstream of exon for + strand
       cds_width_us <- IRanges::width(cds)[1:near_ex_i - 1] %>% sum()
-      hgvs <- paste0("c.", sum(cds_width_hit + cds_width_us))
+      hgvs <- paste0(sum(cds_width_hit + cds_width_us))
     } else {
       # on negative strand
       # distance into cds hit
       cds_width_hit <- (1 + IRanges::end(near_ex) - IRanges::start(bedfile))
       # accum width of cds upstream of exon for - strand
       cds_width_us <- IRanges::width(cds)[1:near_ex_i - 1] %>% sum()
-      hgvs <- paste0("c.", sum(cds_width_hit + cds_width_us))
+      hgvs <- paste0(sum(cds_width_hit + cds_width_us))
     }
   } else {
     # coordinate is flanking cds
@@ -198,11 +198,11 @@ getHgvs2 <- function(bedfile, cds) {
         # interval is upstream of exon. hgvs should not include nearest exon
         # +1 because in relation to first base of upstream exon
         entry_cds <- 1 + IRanges::width(cds[1:near_ex_i - 1]) %>% sum
-        hgvs <- paste0("c.", entry_cds, "-", dist + 1)
+        hgvs <- paste0(entry_cds, "-", dist + 1)
       } else {
         # downstream, hgvs includes nearest exon
         entry_cds <- IRanges::width(cds[1:(near_ex_i)]) %>% sum
-        hgvs <- paste0("c.", entry_cds, "+", dist + 1)
+        hgvs <- paste0(entry_cds, "+", dist + 1)
       }
     } else {
       # if negative strand
@@ -210,12 +210,12 @@ getHgvs2 <- function(bedfile, cds) {
         # interval is downstream of exon
         # hgvs should include this exon
         entry_cds <- IRanges::width(cds[1:near_ex_i]) %>% sum
-        hgvs <- paste0("c.", entry_cds, "+", dist + 1)
+        hgvs <- paste0(entry_cds, "+", dist + 1)
       } else {
         # interval is upstream of exon
         # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
         entry_cds <- 1 + IRanges::width(cds[1:near_ex_i - 1]) %>% sum
-        hgvs <- paste0("c.", entry_cds, "-", dist + 1)
+        hgvs <- paste0(entry_cds, "-", dist + 1)
       }
     }
   }
