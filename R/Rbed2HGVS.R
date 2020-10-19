@@ -84,6 +84,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
   return(hgvs)
 }
 
+
 getHgvs <- function(bedfile, cds_by_tx) {
 
   # index of bed overlap with cds
@@ -145,7 +146,15 @@ mapCoordToCds <- function(bedfile, cds) {
   hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds)
   hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds)
 
-  list("start" = hgvs_start, "end" = hgvs_end) %>% return()
+  # check orientation of this transcript (samples from first cds)
+  strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
+
+  # flip start and end HGVS for -ve strand
+  if (strand == "+") {
+    list("start" = hgvs_start, "end" = hgvs_end) %>% return()
+  } else {
+    list("start" = hgvs_end, "end" = hgvs_start) %>% return()
+  }
 }
 
 
