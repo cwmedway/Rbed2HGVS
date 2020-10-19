@@ -32,7 +32,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
 
   # get cds indexed by refseq fron db
   cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
-
+  refseq_tx <- GenomicFeatures::transcripts(x = ucsc_hg19_ncbiRefSeq)
 
   if (is.character(preferred_tx)) {
     # read preferred transcripts (ptx)
@@ -76,7 +76,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
   }
 
   # get cds info for start and end of bedfile
-  hgvs <- getHgvs(bedfile = bedfile, cds = cds_by_tx) %>% do.call(rbind, .)
+  hgvs <- getHgvs(bedfile = bedfile, cds_by_tx = cds_by_tx, refseq_tx = refseq_tx) %>% do.call(rbind, .)
 
   #append HGMD
   hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
@@ -85,20 +85,23 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
 }
 
 
-getHgvs <- function(bedfile, cds_by_tx) {
+getHgvs <- function(bedfile, cds_by_tx, refseq_tx) {
 
   # index of bed overlap with cds
-  bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = cds_by_tx)
+  bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
 
   # if no overlaps across all bed regions - stop
 
-  # get transcript index that overlap each bedentry
+  # get transcript that overlap each bed entry
   # output should contain hgvs for these
-  cds_ol <- lapply(seq(bedfile), function(x) {
-    S4Vectors::queryHits(bed_ol_tx) %in% x %>%
-      bed_ol_tx[.] %>%
-      S4Vectors::subjectHits(.)
-  })
+  cds_ol <- lapply(
+    seq(bedfile), function(x) {
+      S4Vectors::queryHits(bed_ol_tx) %in% x %>%
+        bed_ol_tx[.] %>%
+        S4Vectors::subjectHits(.) %>%
+        refseq_tx$tx_name[.]
+      }
+    )
 
   # loop over each element (bed entry)
   lapply(seq(cds_ol), function(bedln) {
@@ -111,13 +114,13 @@ getHgvs <- function(bedfile, cds_by_tx) {
     # if bed entry overlaps at least one transcript
     if(!isEmpty(cds_ol)[bedln]) {
 
-      # loop over each tx by index - get exon & hgvs
+      # loop over each tx - get exon & hgvs
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
         mapCoordToCds(bedfile = bedfile[bedln], cds = cds_by_tx[[tx_i]])
       })
 
       # parse fields to make df
-      tx         <- names(cds_by_tx)[cds_ol[[bedln]]]
+      tx         <- cds_ol[[bedln]]
       hgvs_start <- lapply(cds_annot, function(x) {x$start$hgvs}) %>% unlist()
       hgvs_end   <- lapply(cds_annot, function(x) {x$end$hgvs}) %>% unlist()
       exon_start <- lapply(cds_annot, function(x) {x$start$exon_rank}) %>% unlist()
@@ -136,25 +139,31 @@ getHgvs <- function(bedfile, cds_by_tx) {
   })
 }
 
-
 mapCoordToCds <- function(bedfile, cds) {
 
-  # make separate ranges object for start and end coordinates
-  bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
-  bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
+  # only perform if transcript has cds
+  if (!is.null(cds)) {
 
-  hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds)
-  hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds)
+    # make separate ranges object for start and end coordinates
+    bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
+    bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
-  # check orientation of this transcript (samples from first cds)
-  strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
+    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds)
+    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds)
 
-  # flip start and end HGVS for -ve strand
-  if (strand == "+") {
-    list("start" = hgvs_start, "end" = hgvs_end) %>% return()
+    # check orientation of this transcript (samples from first cds)
+    strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
+
+    # flip start and end HGVS for -ve strand
+    if (strand == "+") {
+      list("start" = hgvs_start, "end" = hgvs_end) %>% return()
+    } else {
+      list("start" = hgvs_end, "end" = hgvs_start) %>% return()
+    }
   } else {
-    list("start" = hgvs_end, "end" = hgvs_start) %>% return()
-  }
+      # if transcript does not have cds (i.e. "NR_")
+    list("start" = list("hgvs" = NA, "exon_rank" = NA), "end" = list("hgvs" = NA, "exon_rank" = NA)) %>% return()
+    }
 }
 
 
