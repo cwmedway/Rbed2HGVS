@@ -14,11 +14,16 @@
 #' @param preferred_tx path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
 #' where there are multiple preferred transcripts from a gene, these should one-row per transcript.
 #'
-#' @return data.frame object with refseqid, gene, exon and hgvs appended
+#' @return list object with [1] data.frame of HGVS [2] preferred transcripts no available in db [3] preferred transcripts with different version to db
 #' @export
 #' @importFrom magrittr %>%
 #' @import org.Hs.eg.db
-Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
+Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
+
+  # set number of cores if not given
+  if (is.na(ncores)) {
+    ncores <- detectCores() - 1
+  }
 
   # load bedfile
   bedfile <- rtracklayer::import.bed(bedfile)
@@ -30,9 +35,35 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
   # convert chr to NCBI style
   GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
 
-  # get cds indexed by refseq fron db
+  # return list[3]. [1] = list of overlapping refseq transcripts indexed by bed entry
+  # [2] = preferred transcripts missing in db
+  # [3] = preferred transcripts different version to db
+  # [2] & [3] both NA is preferred transcripts not given
+  tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
+
+  # cds GRangesList indexed by RefSeq
   cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
-  refseq_tx <- GenomicFeatures::transcripts(x = ucsc_hg19_ncbiRefSeq)
+
+  # trim to only include necessary transcripts
+  cds_by_tx <- cds_by_tx[names(cds_by_tx) %in% unique(unlist(tx$model))]
+
+  # get cds info for start and end of bedfile
+  hgvs <- getHgvs(bedfile = bedfile, cds_by_tx = cds_by_tx, cds_ol = tx[['model']], ncores = ncores) %>% do.call(rbind, .)
+
+  #append HGMD
+  hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
+
+  list(
+    "hgvs" = hgvs,
+    "missing" = tx[['missing']],
+    "version" = tx[['version']]
+    ) %>% return()
+}
+
+
+getTranscripts <- function(preferred_tx, db, bedfile) {
+
+  refseq_tx <- GenomicFeatures::transcripts(x = db)
 
   if (is.character(preferred_tx)) {
     # read preferred transcripts (ptx)
@@ -40,7 +71,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
     # ptx name without version suffix
     ptx_prefix <- stringr::str_remove(string = df_ptx[,2], pattern = '\\.\\d+')
     # names of tx in RefSeq DB
-    cds_name   <- names(cds_by_tx)
+    cds_name   <- refseq_tx$tx_name
     cds_prefix <- stringr::str_remove(string = cds_name, pattern = "\\.\\d+")
 
     # find preferred tx in RedSeq DB
@@ -50,8 +81,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
     ptx_missing <- df_ptx[is.na(m),]
 
     if (dim(ptx_missing)[1] > 0) {
-      warning("The following preferred transcripts are missing from the RefSeq DB")
-      warning( paste0(ptx_missing[,1], " ", ptx_missing[,2]) )
+      warning("Some preferred transcripts are missing from the RefSeq DB")
     }
 
     # df containing only matched ptx
@@ -62,53 +92,60 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA) {
     not_same_version <- !(ptx_not_missing[,2] %in% cds_not_missing)
 
     if (sum(not_same_version) > 0) {
-      warning("The following preferred transcripts are a different version from the RefSeq DB:")
-      warning( paste0(
-        ptx_not_missing[not_same_version,1],
-        " ",
-        ptx_not_missing[not_same_version,2],
-        " ---> DB:",
-        cds_not_missing[not_same_version]
-      ) )
-    }
+      warning("Some preferred transcripts are a different version from the RefSeq DB")
+      ptx_version <- data.frame(
+        "gene" = ptx_not_missing[not_same_version,1],
+        "preferred_tx" = ptx_not_missing[not_same_version,2],
+        "db_tx" = cds_not_missing[not_same_version] )
+    } else { ptx_version <- NA }
 
-    cds_by_tx <- cds_by_tx[m[!is.na(m)]]
-  }
+    refseq_tx <- refseq_tx[m[!is.na(m)]]
+    # index of bed overlap with transcripts
+    bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
 
-  # get cds info for start and end of bedfile
-  hgvs <- getHgvs(bedfile = bedfile, cds_by_tx = cds_by_tx, refseq_tx = refseq_tx) %>% do.call(rbind, .)
-
-  #append HGMD
-  hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
-
-  return(hgvs)
-}
-
-
-getHgvs <- function(bedfile, cds_by_tx, refseq_tx) {
-
-  # index of bed overlap with cds
-  bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
-
-  # if no overlaps across all bed regions - stop
-
-  # get transcript that overlap each bed entry
-  # output should contain hgvs for these
-  cds_ol <- lapply(
-    seq(bedfile), function(x) {
-      S4Vectors::queryHits(bed_ol_tx) %in% x %>%
-        bed_ol_tx[.] %>%
-        S4Vectors::subjectHits(.) %>%
-        refseq_tx$tx_name[.]
+    cds_ol <- lapply(
+      seq(bedfile), function(x) {
+        S4Vectors::queryHits(bed_ol_tx) %in% x %>%
+          bed_ol_tx[.] %>%
+          S4Vectors::subjectHits(.) %>%
+          refseq_tx$tx_name[.]
       }
     )
 
+    return(
+      return(list("model" = cds_ol, "missing" = ptx_missing, "version" = ptx_version))
+    )
+  } else {
+    # no preferred transcripts given
+
+    # index of bed overlap with transcripts
+    bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
+
+    # get transcript that overlap each bed entry
+    # output should contain hgvs for these
+    cds_ol <- lapply(
+      seq(bedfile), function(x) {
+        S4Vectors::queryHits(bed_ol_tx) %in% x %>%
+          bed_ol_tx[.] %>%
+          S4Vectors::subjectHits(.) %>%
+          refseq_tx$tx_name[.]
+      }
+    )
+
+    return(list("model" = cds_ol, "missing" = NA, "version" = NA))
+
+  }
+  }
+
+
+getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
+
   # loop over each element (bed entry)
-  lapply(seq(cds_ol), function(bedln) {
+  mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
 
     # will be first three columns of output
     chr   <- GenomicRanges::seqnames(bedfile[bedln]) %>% as.vector()
-    start <- GenomicRanges::start(bedfile[bedln]) - 1
+    start <- GenomicRanges::start(bedfile[bedln]) - 1 # -1 because GRanges representation of BED different to UCSC (1 vs 0 based)
     end   <- GenomicRanges::end(bedfile[bedln])
 
     # if bed entry overlaps at least one transcript
@@ -126,7 +163,7 @@ getHgvs <- function(bedfile, cds_by_tx, refseq_tx) {
       exon_start <- lapply(cds_annot, function(x) {x$start$exon_rank}) %>% unlist()
       exon_end   <- lapply(cds_annot, function(x) {x$end$exon_rank}) %>% unlist()
     } else {
-      # no overlapping tx
+      # null when no overlapping tx
       tx <- NA
       hgvs_start <- NA
       hgvs_end   <- NA
@@ -165,9 +202,6 @@ mapCoordToCds <- function(bedfile, cds) {
     list("start" = list("hgvs" = NA, "exon_rank" = NA), "end" = list("hgvs" = NA, "exon_rank" = NA)) %>% return()
     }
 }
-
-
-
 
 
 getHgvs2 <- function(bedfile, cds) {

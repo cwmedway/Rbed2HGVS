@@ -4,7 +4,7 @@
 \alias{Rbed2HGVS}
 \title{appends an additional column of interval in HGVS nomenclature to a bedfile}
 \usage{
-Rbed2HGVS(bedfile, db, preferred_tx = NA)
+Rbed2HGVS(bedfile, db, preferred_tx = NA, ncores = NA)
 }
 \arguments{
 \item{bedfile}{path to bedfile}
@@ -15,7 +15,7 @@ Rbed2HGVS(bedfile, db, preferred_tx = NA)
 where there are multiple preferred transcripts from a gene, these should one-row per transcript.}
 }
 \value{
-data.frame object with refseqid, gene, exon and hgvs appended
+list object with [1] data.frame of HGVS [2] preferred transcripts no available in db [3] preferred transcripts with different version to db
 }
 \description{
 appends an additional column of interval in HGVS nomenclature to a bedfile
