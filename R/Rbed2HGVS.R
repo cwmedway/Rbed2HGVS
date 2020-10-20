@@ -22,7 +22,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 
   # set number of cores if not given
   if (is.na(ncores)) {
-    ncores <- detectCores() - 1
+    ncores <- parallel::detectCores() - 1
   }
 
   # load bedfile
