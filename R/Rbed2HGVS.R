@@ -141,7 +141,7 @@ getTranscripts <- function(preferred_tx, db, bedfile) {
 getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
 
   # loop over each element (bed entry)
-  mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
+  parallel::mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
 
     # will be first three columns of output
     chr   <- GenomicRanges::seqnames(bedfile[bedln]) %>% as.vector()

@@ -22,5 +22,6 @@ Imports:
     S4Vectors,
     AnnotationDbi,
     GenomeInfoDb,
-    stringr
+    stringr,
+    parallel
 RoxygenNote: 7.1.1
