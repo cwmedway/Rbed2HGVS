@@ -25,8 +25,9 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
     ncores <- parallel::detectCores() - 1
   }
 
-  # load bedfile
+  # load bedfile to GRanges and use NCBI chr convention
   bedfile <- rtracklayer::import.bed(bedfile)
+  GenomeInfoDb::seqlevelsStyle(bedfile) <- "NCBI"
 
   # load refseq database
   ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
@@ -282,6 +283,5 @@ getSymbolRefseq <- function(refSeqId) {
     AnnotationDbi::select(org.Hs.eg.db, keytype = "REFSEQ", keys = ., columns = "SYMBOL") %>%
     .[,"SYMBOL"] %>%
     return()
-
 }
 
