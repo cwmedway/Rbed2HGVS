@@ -27,38 +27,46 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 
   # load bedfile to GRanges and use NCBI chr convention
   bedfile <- rtracklayer::import.bed(bedfile)
-  GenomeInfoDb::seqlevelsStyle(bedfile) <- "NCBI"
 
-  # load refseq database
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
+  if (length(bedfile) > 0) {
 
-  # convert chr to NCBI style
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+    GenomeInfoDb::seqlevelsStyle(bedfile) <- "NCBI"
 
-  # return list[3]. [1] = list of overlapping refseq transcripts indexed by bed entry
-  # [2] = preferred transcripts missing in db
-  # [3] = preferred transcripts different version to db
-  # [2] & [3] both NA is preferred transcripts not given
-  tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
+    # load refseq database
+    ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+      GenomeInfoDb::keepStandardChromosomes(.)
 
-  # cds GRangesList indexed by RefSeq
-  cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
+    # convert chr to NCBI style
+    GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
 
-  # trim to only include necessary transcripts
-  cds_by_tx <- cds_by_tx[names(cds_by_tx) %in% unique(unlist(tx$model))]
+    # return list[3]. [1] = list of overlapping refseq transcripts indexed by bed entry
+    # [2] = preferred transcripts missing in db
+    # [3] = preferred transcripts different version to db
+    # [2] & [3] both NA is preferred transcripts not given
+    tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
 
-  # get cds info for start and end of bedfile
-  hgvs <- getHgvs(bedfile = bedfile, cds_by_tx = cds_by_tx, cds_ol = tx[['model']], ncores = ncores) %>% do.call(rbind, .)
+    # cds GRangesList indexed by RefSeq
+    cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
 
-  #append HGMD
-  hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
+    # trim to only include necessary transcripts
+    cds_by_tx <- cds_by_tx[names(cds_by_tx) %in% unique(unlist(tx$model))]
 
-  list(
-    "hgvs" = hgvs,
-    "missing" = tx[['missing']],
-    "version" = tx[['version']]
+    # get cds info for start and end of bedfile
+    hgvs <- getHgvs(bedfile = bedfile, cds_by_tx = cds_by_tx, cds_ol = tx[['model']], ncores = ncores) %>% do.call(rbind, .)
+
+    #append HGMD
+    hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
+
+    list(
+      "hgvs" = hgvs,
+      "missing" = tx[['missing']],
+      "version" = tx[['version']]
     ) %>% return()
+
+  } else {
+    # bedfile is empty
+    warning("bedfile is empty")
+  }
 }
 
 
