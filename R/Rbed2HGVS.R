@@ -66,6 +66,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
   } else {
     # bedfile is empty
     warning("bedfile is empty")
+    return(NA)
   }
 }
 
