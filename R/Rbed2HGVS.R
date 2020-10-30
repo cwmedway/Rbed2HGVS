@@ -71,7 +71,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 }
 
 
-getTranscripts <- function(preferred_tx, db, bedfile) {
+getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
 
   refseq_tx <- GenomicFeatures::transcripts(x = db)
 
@@ -111,7 +111,7 @@ getTranscripts <- function(preferred_tx, db, bedfile) {
 
     refseq_tx <- refseq_tx[m[!is.na(m)]]
     # index of bed overlap with transcripts
-    bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
+    bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx, maxgap = flank_length)
 
     cds_ol <- lapply(
       seq(bedfile), function(x) {
