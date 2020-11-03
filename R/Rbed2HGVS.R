@@ -1,12 +1,4 @@
 
-# makeCdsDb <- function() {
-#
-#   ucsc_hg19_ncbiRefSeq <- GenomicFeatures::makeTxDbFromUCSC(genome = "hg19", tablename = "ncbiRefSeq") %>%
-#     GenomeInfoDb::keepStandardChromosomes(.)
-#   GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-#   AnnotationDbi::saveDb(x = ucsc_hg19_ncbiRefSeq, file = './data/ucsc_hg19_ncbiRefSeq.sqlite')
-# }
-
 #' appends an additional column of interval in HGVS nomenclature to a bedfile
 #'
 #' @param bedfile path to bedfile
@@ -45,14 +37,23 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
     # [2] & [3] both NA is preferred transcripts not given
     tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
 
-    # cds GRangesList indexed by RefSeq
-    cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)
+    #
+    tx_names <- unique(unlist(tx$model))
 
-    # trim to only include necessary transcripts
-    cds_by_tx <- cds_by_tx[names(cds_by_tx) %in% unique(unlist(tx$model))]
+    # GRangesList indexed by RefSeq
+    cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)[tx_names]
+    three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+    five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
 
     # get cds info for start and end of bedfile
-    hgvs <- getHgvs(bedfile = bedfile, cds_by_tx = cds_by_tx, cds_ol = tx[['model']], ncores = ncores) %>% do.call(rbind, .)
+    hgvs <- getHgvs(
+      bedfile = bedfile,
+      cds_by_tx = cds_by_tx,
+      cds_ol = tx[['model']],
+      ncores = ncores,
+      three_utr = three_utr,
+      five_utr = five_utr
+      ) %>% do.call(rbind, .)
 
     #append HGMD
     hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
@@ -71,36 +72,40 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 }
 
 
+
 getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
 
+  # GenomicRanges object of refseq transcripts
   refseq_tx <- GenomicFeatures::transcripts(x = db)
 
   if (is.character(preferred_tx)) {
-    # read preferred transcripts (ptx)
+    # read preferred transcripts (ptx) if given
     df_ptx <- read.table(file = preferred_tx, header = F, stringsAsFactors = F)
-    # ptx name without version suffix
+    # make sure there are no duplicated rows
+    df_ptx <- df_ptx[!duplicated(df_ptx),]
+    # reformat refseq name without version suffix
     ptx_prefix <- stringr::str_remove(string = df_ptx[,2], pattern = '\\.\\d+')
-    # names of tx in RefSeq DB
+    # get names of tx in RefSeq DB and get prefix
     cds_name   <- refseq_tx$tx_name
     cds_prefix <- stringr::str_remove(string = cds_name, pattern = "\\.\\d+")
 
-    # find preferred tx in RedSeq DB
-    m <- match(x = ptx_prefix, table = cds_prefix)
+    # are preferred tx in RedSeq DB
+    refseq_ptx_db <- match(x = ptx_prefix, table = cds_prefix)
 
-    # preferred tx not in RefSeq DB
-    ptx_missing <- df_ptx[is.na(m),]
-
+    # which preferred tx not in RefSeq DB - give warning
+    ptx_missing <- df_ptx[is.na(refseq_ptx_db),]
     if (dim(ptx_missing)[1] > 0) {
       warning("Some preferred transcripts are missing from the RefSeq DB")
     }
 
-    # df containing only matched ptx
-    ptx_not_missing <- df_ptx[!is.na(m),]
-    # extract full tx names from RefSeq DB (inc version)
-    cds_not_missing <- cds_name[m[!is.na(m)]]
-    # check if versions match
-    not_same_version <- !(ptx_not_missing[,2] %in% cds_not_missing)
+    # get df containing only matched ptx
+    ptx_not_missing <- df_ptx[!is.na(refseq_ptx_db),]
 
+    # extract full tx names (inc. suffix) from RefSeq DB
+    cds_not_missing <- cds_name[refseq_ptx_db[!is.na(refseq_ptx_db)]]
+
+    # check if versions match - if not warn and make df of diferences
+    not_same_version <- !(ptx_not_missing[,2] %in% cds_not_missing)
     if (sum(not_same_version) > 0) {
       warning("Some preferred transcripts are a different version from the RefSeq DB")
       ptx_version <- data.frame(
@@ -109,10 +114,13 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
         "db_tx" = cds_not_missing[not_same_version] )
     } else { ptx_version <- NA }
 
-    refseq_tx <- refseq_tx[m[!is.na(m)]]
+    # overwite refseq object to only contain preferred transcripts
+    refseq_tx <- refseq_tx[refseq_ptx_db[!is.na(refseq_ptx_db)]]
+
     # index of bed overlap with transcripts
     bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx, maxgap = flank_length)
 
+    # format output object as list containing transcripts indexed by bed line
     cds_ol <- lapply(
       seq(bedfile), function(x) {
         S4Vectors::queryHits(bed_ol_tx) %in% x %>%
@@ -127,7 +135,6 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
     )
   } else {
     # no preferred transcripts given
-
     # index of bed overlap with transcripts
     bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
 
@@ -148,7 +155,7 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
   }
 
 
-getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
+getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, three_utr, five_utr) {
 
   # loop over each element (bed entry)
   parallel::mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
@@ -163,7 +170,12 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
 
       # loop over each tx - get exon & hgvs
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
-        mapCoordToCds(bedfile = bedfile[bedln], cds = cds_by_tx[[tx_i]])
+        mapCoordToCds(
+          bedfile = bedfile[bedln],
+          cds = cds_by_tx[[tx_i]],
+          five_utr = five_utr[[tx_i]],
+          three_utr = three_utr[[tx_i]]
+          )
       })
 
       # parse fields to make df
@@ -186,7 +198,7 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
   })
 }
 
-mapCoordToCds <- function(bedfile, cds) {
+mapCoordToCds <- function(bedfile, cds, tx_i, three_utr, five_utr) {
 
   # only perform if transcript has cds
   if (!is.null(cds)) {
@@ -195,8 +207,8 @@ mapCoordToCds <- function(bedfile, cds) {
     bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
     bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
-    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds)
-    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds)
+    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds, three_utr, five_utr)
+    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds, three_utr, five_utr)
 
     # check orientation of this transcript (samples from first cds)
     strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
@@ -214,12 +226,15 @@ mapCoordToCds <- function(bedfile, cds) {
 }
 
 
-getHgvs2 <- function(bedfile, cds) {
+getHgvs2 <- function(bedfile, cds, three_utr, five_utr) {
+
+  # total amount of cds
+  total_cds <- IRanges::width(cds) %>% sum()
 
   # find which exon overlaps
   dist_to_cds <- IRanges::distance(x = bedfile, y = cds)
 
-  # which exon
+  # which exon is closest or overlapping
   near_ex_i <- which.min(dist_to_cds)
 
   # get dist to event (0-based - if using in HGVS need to add 1bp)
@@ -234,10 +249,10 @@ getHgvs2 <- function(bedfile, cds) {
   # which strand
   strand  <- GenomicRanges::strand(near_ex) %>% as.vector()
 
+  # query position within a cds exon
   if ( dist == 0 ) {
-    # coordinate within cds
+    # on positive strand
     if ( strand == "+") {
-      # on positive strand
       # distance into cds hit
       cds_width_hit <- (1 + IRanges::start(bedfile) - IRanges::start(near_ex))
       # accum width of cds upstream of exon for + strand
@@ -251,22 +266,85 @@ getHgvs2 <- function(bedfile, cds) {
       cds_width_us <- IRanges::width(cds)[1:near_ex_i - 1] %>% sum()
       hgvs <- paste0(sum(cds_width_hit + cds_width_us))
     }
-  } else {
+  } else if ( dist != 0 ){
     # coordinate is flanking cds
     # if positive strand
     if (strand == '+') {
       # event occuring upstream of cds
       if (IRanges::start(bedfile) < IRanges::start(near_ex)) {
-        # interval is upstream of exon. hgvs should not include nearest exon
+        # interval is upstream of cds. hgvs should not include nearest exon
         # +1 because in relation to first base of upstream exon
         entry_cds <- 1 + IRanges::width(cds[1:near_ex_i - 1]) %>% sum
-        hgvs <- paste0(entry_cds, "-", dist + 1)
+
+        # is there UTR between position and CDS?
+        # is upstream of first cds?
+        if (entry_cds == 1) {
+          # is upstream of first cds on positive strand - could be 5'UTR involved!
+          dist_to_utr <- IRanges::distance(x = bedfile, y = five_utr)
+          closest_i <- which.min(dist_to_utr)
+
+          if (dist_to_utr[closest_i] == 0) {
+            # is inside UTR
+            # amount if utr between position and cds
+            hgvs <- paste0("-", dist + 1)
+          } else {
+            # outside UTR
+            dist_to_closest <- dist_to_utr[closest_i]
+            closest_start <- IRanges::start(five_utr[closest_i])
+
+            # if occurs upstream of all 5'UTR - hgvs is upstream + UTR
+            if (closest_i == 1 && IRanges::start(bedfile) < closest_start) {
+              upstream <- closest_start - IRanges::start(bedfile)
+              hgvs <- paste0("-", upstream + IRanges::width(five_utr) %>% sum() + 1)
+            } else {
+              # is between utr exons
+              # position us or ds of closest?
+              if (IRanges::start(bedfile) < closest_start) {
+                # is upstream
+                # total utr beyween position and cds
+                utr_width <- five_utr[(closest_i):length(dist_to_utr)] %>% width() %>% sum()
+                hgvs <- paste0("-", utr_width, "-", dist_to_closest + 1)
+              } else {
+                # is downstream
+                # total utr beyween position and cds
+                utr_width <- five_utr[(closest_i+1):length(dist_to_utr)] %>% width() %>% sum() + 1
+                hgvs <- paste0("-", utr_width, "+", dist_to_closest)
+              }
+            }
+          }
+
+        } else {
+          # no UTR between position and CDS
+          hgvs <- paste0(entry_cds, "-", dist + 1)
+        }
+
       } else {
         # downstream, hgvs includes nearest exon
         entry_cds <- IRanges::width(cds[1:(near_ex_i)]) %>% sum
-        hgvs <- paste0(entry_cds, "+", dist + 1)
+
+        if (entry_cds == total_cds) {
+          # is downstream of last cds on positive strand - could be 3'UTR involved!
+          dist_to_utr <- IRanges::distance(x = bedfile, y = three_utr)
+          closest_i <- which.min(dist_to_utr)
+
+          if (dist_to_utr[closest_i] == 0) {
+            # is inside UTR
+            # amount if utr between position and cds
+            hgvs <- paste0('*', dist + 1)
+          } else {
+            # outside UTR
+            # amount if utr between position and cds
+            hgvs <- paste0('*', dist + 1)
+          }
+
+        } else {
+          hgvs <- paste0(entry_cds, "+", dist + 1)
+        }
       }
     } else {
+
+      # ----- NEGATIVE STRAND -----
+
       # if negative strand
       if (IRanges::start(bedfile) < IRanges::start(near_ex)) {
         # interval is downstream of exon
