@@ -42,17 +42,15 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 
     # GRangesList indexed by RefSeq
     cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)[tx_names]
-    three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-    five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+    #three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+    #five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
 
     # get cds info for start and end of bedfile
     hgvs <- getHgvs(
       bedfile = bedfile,
       cds_by_tx = cds_by_tx,
       cds_ol = tx[['model']],
-      ncores = ncores,
-      three_utr = three_utr,
-      five_utr = five_utr
+      ncores = ncores
       ) %>% do.call(rbind, .)
 
     #append HGMD
@@ -155,7 +153,7 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
   }
 
 
-getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, three_utr, five_utr) {
+getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
 
   # loop over each element (bed entry)
   parallel::mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
@@ -172,9 +170,7 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, three_utr, five_utr) {
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
         mapCoordToCds(
           bedfile = bedfile[bedln],
-          cds = cds_by_tx[[tx_i]],
-          five_utr = five_utr[[tx_i]],
-          three_utr = three_utr[[tx_i]]
+          cds = cds_by_tx[[tx_i]]
           )
       })
 
@@ -198,7 +194,7 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, three_utr, five_utr) {
   })
 }
 
-mapCoordToCds <- function(bedfile, cds, tx_i, three_utr, five_utr) {
+mapCoordToCds <- function(bedfile, cds, tx_i) {
 
   # only perform if transcript has cds
   if (!is.null(cds)) {
@@ -207,8 +203,8 @@ mapCoordToCds <- function(bedfile, cds, tx_i, three_utr, five_utr) {
     bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
     bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
-    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds, three_utr, five_utr)
-    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds, three_utr, five_utr)
+    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds)
+    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds)
 
     # check orientation of this transcript (samples from first cds)
     strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
@@ -226,141 +222,130 @@ mapCoordToCds <- function(bedfile, cds, tx_i, three_utr, five_utr) {
 }
 
 
-getHgvs2 <- function(bedfile, cds, three_utr, five_utr) {
 
-  # total amount of cds
-  total_cds <- IRanges::width(cds) %>% sum()
+getHgvs2 <- function(bedfile, cds) {
 
-  # find which exon overlaps
-  dist_to_cds <- IRanges::distance(x = bedfile, y = cds)
+  pos <- IRanges::start(bedfile)
+  strand <- GenomicRanges::strand(cds)[1] %>% as.character()
 
-  # which exon is closest or overlapping
-  near_ex_i <- which.min(dist_to_cds)
+  # distance to closest CDS (-/+)
+  dist_dir <- dist_dir_to_nearest(bedfile = bedfile, ranges = cds)
 
-  # get dist to event (0-based - if using in HGVS need to add 1bp)
-  dist <- dist_to_cds[near_ex_i]
+  if (dist_dir$dist == 0) {
 
-  # get that exon
-  near_ex <- cds[near_ex_i]
-
-  # exon number
-  exon_rank <- near_ex$exon_rank
-
-  # which strand
-  strand  <- GenomicRanges::strand(near_ex) %>% as.vector()
-
-  # query position within a cds exon
-  if ( dist == 0 ) {
-    # on positive strand
-    if ( strand == "+") {
-      # distance into cds hit
-      cds_width_hit <- (1 + IRanges::start(bedfile) - IRanges::start(near_ex))
-      # accum width of cds upstream of exon for + strand
-      cds_width_us <- IRanges::width(cds)[1:near_ex_i - 1] %>% sum()
-      hgvs <- paste0(sum(cds_width_hit + cds_width_us))
-    } else {
-      # on negative strand
-      # distance into cds hit
-      cds_width_hit <- (1 + IRanges::end(near_ex) - IRanges::start(bedfile))
-      # accum width of cds upstream of exon for - strand
-      cds_width_us <- IRanges::width(cds)[1:near_ex_i - 1] %>% sum()
-      hgvs <- paste0(sum(cds_width_hit + cds_width_us))
-    }
-  } else if ( dist != 0 ){
-    # coordinate is flanking cds
-    # if positive strand
+    # ----- WITHIN CDS -----
     if (strand == '+') {
-      # event occuring upstream of cds
-      if (IRanges::start(bedfile) < IRanges::start(near_ex)) {
-        # interval is upstream of cds. hgvs should not include nearest exon
-        # +1 because in relation to first base of upstream exon
-        entry_cds <- 1 + IRanges::width(cds[1:near_ex_i - 1]) %>% sum
+      hgvs <- pos_within_cds_positive(pos = pos, dist_dir = dist_dir, cds = cds)
+    } else if (strand == '-') {
+      hgvs <- pos_within_cds_negative(pos = pos, dist_dir = dist_dir, cds = cds)
+    }
+  } else {
 
-        # is there UTR between position and CDS?
-        # is upstream of first cds?
-        if (entry_cds == 1) {
-          # is upstream of first cds on positive strand - could be 5'UTR involved!
-          dist_to_utr <- IRanges::distance(x = bedfile, y = five_utr)
-          closest_i <- which.min(dist_to_utr)
-
-          if (dist_to_utr[closest_i] == 0) {
-            # is inside UTR
-            # amount if utr between position and cds
-            hgvs <- paste0("-", dist + 1)
-          } else {
-            # outside UTR
-            dist_to_closest <- dist_to_utr[closest_i]
-            closest_start <- IRanges::start(five_utr[closest_i])
-
-            # if occurs upstream of all 5'UTR - hgvs is upstream + UTR
-            if (closest_i == 1 && IRanges::start(bedfile) < closest_start) {
-              upstream <- closest_start - IRanges::start(bedfile)
-              hgvs <- paste0("-", upstream + IRanges::width(five_utr) %>% sum() + 1)
-            } else {
-              # is between utr exons
-              # position us or ds of closest?
-              if (IRanges::start(bedfile) < closest_start) {
-                # is upstream
-                # total utr beyween position and cds
-                utr_width <- five_utr[(closest_i):length(dist_to_utr)] %>% width() %>% sum()
-                hgvs <- paste0("-", utr_width, "-", dist_to_closest + 1)
-              } else {
-                # is downstream
-                # total utr beyween position and cds
-                utr_width <- five_utr[(closest_i+1):length(dist_to_utr)] %>% width() %>% sum() + 1
-                hgvs <- paste0("-", utr_width, "+", dist_to_closest)
-              }
-            }
-          }
-
-        } else {
-          # no UTR between position and CDS
-          hgvs <- paste0(entry_cds, "-", dist + 1)
-        }
-
-      } else {
-        # downstream, hgvs includes nearest exon
-        entry_cds <- IRanges::width(cds[1:(near_ex_i)]) %>% sum
-
-        if (entry_cds == total_cds) {
-          # is downstream of last cds on positive strand - could be 3'UTR involved!
-          dist_to_utr <- IRanges::distance(x = bedfile, y = three_utr)
-          closest_i <- which.min(dist_to_utr)
-
-          if (dist_to_utr[closest_i] == 0) {
-            # is inside UTR
-            # amount if utr between position and cds
-            hgvs <- paste0('*', dist + 1)
-          } else {
-            # outside UTR
-            # amount if utr between position and cds
-            hgvs <- paste0('*', dist + 1)
-          }
-
-        } else {
-          hgvs <- paste0(entry_cds, "+", dist + 1)
-        }
-      }
-    } else {
-
-      # ----- NEGATIVE STRAND -----
-
-      # if negative strand
-      if (IRanges::start(bedfile) < IRanges::start(near_ex)) {
-        # interval is downstream of exon
-        # hgvs should include this exon
-        entry_cds <- IRanges::width(cds[1:near_ex_i]) %>% sum
-        hgvs <- paste0(entry_cds, "+", dist + 1)
-      } else {
-        # interval is upstream of exon
-        # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
-        entry_cds <- 1 + IRanges::width(cds[1:near_ex_i - 1]) %>% sum
-        hgvs <- paste0(entry_cds, "-", dist + 1)
-      }
+    # ----- OUTSIDE CDS -----
+    if (strand == '+') {
+      hgvs <- pos_outside_cds_positive(dist_dir = dist_dir)
+    } else if (strand == "-") {
+      hgvs <- pos_outside_cds_negative(dist_dir = dist_dir)
     }
   }
-  return(list("hgvs" = hgvs, "exon_rank" = exon_rank))
+
+  return(list("hgvs" = hgvs, "exon_rank" = cds[dist_dir$index]$exon_rank))
 }
+
+
+
+
+pos_within_cds_positive <- function(pos, dist_dir, cds) {
+  # distance into cds hit
+  cds_width_hit <- (pos + 1) - dist_dir$nearest_start
+  # accum width of cds upstream of exon for + strand
+  hgvs <- paste0(sum(cds_width_hit + dist_dir$upstream_size))
+
+  return(hgvs)
+}
+
+pos_within_cds_negative <- function(pos, dist_dir, cds) {
+  # distance into cds hit
+  cds_width_hit <- (dist_dir$nearest_end - (pos + 1))
+  # accum width of cds upstream of exon for - strand
+  hgvs <- paste0(sum(cds_width_hit + dist_dir$upstream_size))
+  return(hgvs)
+}
+
+pos_outside_cds_positive <- function(dist_dir) {
+
+  if ( dist_dir$dir == '-' ) {
+    # interval is upstream of exon. hgvs should not include nearest exon
+    # +1 because in relation to first base of upstream exon
+    entry_cds <- 1 + dist_dir$upstream_size
+    hgvs <- paste0(entry_cds, "-", dist_dir$dist + 1)
+  } else if ( dist_dir$dir == '+' ) {
+    # downstream, hgvs includes nearest exon
+    entry_cds <- dist_dir$upstream_size
+    hgvs <- paste0(entry_cds, "+", dist_dir$dist + 1)
+  }
+
+  return(hgvs)
+}
+
+pos_outside_cds_negative <- function(dist_dir) {
+
+  if (dist_dir$dir == '-') {
+    # interval is downstream of exon
+    # hgvs should include this exon
+    entry_cds <- dist_dir$upstream_size
+    hgvs <- paste0(entry_cds, "+", dist_dir$dist + 1)
+  } else {
+    # interval is upstream of exon
+    # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
+    entry_cds <- 1 +  dist_dir$downstream_size
+    hgvs <- paste0(entry_cds, "-", dist + 1)
+  }
+  return(hgvs)
+}
+
+
+
+
+dist_dir_to_nearest <- function(bedfile, ranges) {
+
+  pos  <- IRanges::start(bedfile)
+  dist <- IRanges::distance(x = bedfile, y = ranges)
+  nearest_i    <- which.min(dist)
+  nearest_dist <- dist[nearest_i]
+
+  nearest_start <- IRanges::start(ranges[nearest_i])
+  nearest_end <- IRanges::end(ranges[nearest_i])
+
+  if (nearest_dist == 0) {
+    dir <- "+"
+    upstream_size <- IRanges::width(ranges[1:(nearest_i-1)]) %>% sum()
+    downstream_size <- IRanges::width(ranges[(nearest_i+1):length(cds)]) %>% sum()
+  } else if (nearest_dist != 0) {
+    pos_nearest <- IRanges::start(ranges[nearest_i])
+    if (pos < pos_nearest) {
+      dir <- "-"
+      upstream_size <- IRanges::width(ranges[1:(nearest_i)]) %>% sum()
+      downstream_size <- IRanges::width(ranges[nearest_i:length(cds)]) %>% sum()
+    } else {
+      dir <- "+"
+      upstream_size <- IRanges::width(ranges[1:nearest_i]) %>% sum()
+      downstream_size <- IRanges::width(ranges[(nearest_i+1):length(cds)]) %>% sum()
+    }
+  }
+  return(
+    list(
+      "index"=nearest_i,
+      "upstream_size" = upstream_size,
+      "downstream_size" = downstream_size,
+      "nearest_start"=nearest_start,
+      "nearest_end"=nearest_end,
+      "dist"=nearest_dist,
+      "dir"=dir)
+  )
+}
+
+
 
 
 getSymbolRefseq <- function(refSeqId) {
