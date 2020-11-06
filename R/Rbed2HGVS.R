@@ -50,7 +50,8 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
       bedfile = bedfile,
       cds_by_tx = cds_by_tx,
       cds_ol = tx[['model']],
-      ncores = ncores
+      ncores = ncores,
+      five_utr = five_utr
       ) %>% do.call(rbind, .)
 
     #append HGMD
@@ -153,7 +154,7 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
   }
 
 
-getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
+getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr) {
 
   # loop over each element (bed entry)
   parallel::mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
@@ -170,7 +171,8 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
         mapCoordToCds(
           bedfile = bedfile[bedln],
-          cds = cds_by_tx[[tx_i]]
+          cds = cds_by_tx[[tx_i]],
+          five_utr = five_utr[[tx_i]]
           )
       })
 
@@ -194,7 +196,7 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores) {
   })
 }
 
-mapCoordToCds <- function(bedfile, cds, tx_i) {
+mapCoordToCds <- function(bedfile, cds, tx_i, five_utr) {
 
   # only perform if transcript has cds
   if (!is.null(cds)) {
@@ -203,8 +205,8 @@ mapCoordToCds <- function(bedfile, cds, tx_i) {
     bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
     bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
-    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds)
-    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds)
+    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds, five_utr = five_utr)
+    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds, five_utr = five_utr)
 
     # check orientation of this transcript (samples from first cds)
     strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
@@ -223,7 +225,7 @@ mapCoordToCds <- function(bedfile, cds, tx_i) {
 
 
 
-getHgvs2 <- function(bedfile, cds) {
+getHgvs2 <- function(bedfile, cds, five_utr) {
 
   pos <- IRanges::start(bedfile)
   strand <- GenomicRanges::strand(cds)[1] %>% as.character()
@@ -243,9 +245,9 @@ getHgvs2 <- function(bedfile, cds) {
 
     # ----- OUTSIDE CDS -----
     if (strand == '+') {
-      hgvs <- pos_outside_cds_positive(dist_dir = dist_dir)
+      hgvs <- pos_outside_cds_positive(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr)
     } else if (strand == "-") {
-      hgvs <- pos_outside_cds_negative(dist_dir = dist_dir)
+      hgvs <- pos_outside_cds_negative(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr)
     }
   }
 
@@ -272,7 +274,7 @@ pos_within_cds_negative <- function(pos, dist_dir, cds) {
   return(hgvs)
 }
 
-pos_outside_cds_positive <- function(dist_dir) {
+pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr) {
 
   if ( dist_dir$dir == '-' ) {
     # interval is upstream of exon. hgvs should not include nearest exon
@@ -281,45 +283,57 @@ pos_outside_cds_positive <- function(dist_dir) {
 
     if (entry_cds == 1) {
       # upstream of CDS#1 - could be 5'UTR
-      hgvs <- pos_five_utr()
+      hgvs <- pos_five_utr(bedfile = bedfile, five_utr = five_utr)
     } else {
       # not upstream of first CDS - UTR not a consideration
       hgvs <- paste0(entry_cds, "-", dist_dir$dist + 1)
     }
   } else if ( dist_dir$dir == '+' ) {
     # downstream, hgvs includes nearest exon
-    entry_cds <- dist_dir$upstream_size
+    entry_cds <- dist_dir$upstream_size + dist_dir$nearest_size
     if (entry_cds == dist_dir$total_size) {
       # downstream of last CDS = could be 3'UTR
       hgvs <- pos_three_utr()
     } else {
       # not dpwnstream of last CDS - UTR not consideration
-      hgvs <- paste0(entry_cds, "+", dist_dir$dist + 1)
+      hgvs <- paste0(entry_cds, "+", dist_dir$dist)
     }
   }
 
   return(hgvs)
 }
 
-pos_outside_cds_negative <- function(dist_dir) {
+pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr) {
 
-  if (dist_dir$dir == '-') {
-    # interval is downstream of exon
-    # hgvs should include this exon
-    # because -ve strand have to add nearest exon
-    entry_cds <- dist_dir$upstream_size + dist_dir$nearest_size
-    hgvs <- paste0(entry_cds, "+", dist_dir$dist)
-  } else {
-    # interval is upstream of exon
+  # upstream of CDS on negative strand
+  if (dist_dir$dir == '+') {
+
+    # amount of CDS upstream
+    entry_cds <- dist_dir$upstream_size + 1
+
+    # if no CDS upstream - 5'UTR?
+    if ( entry_cds == 1 ) {
+      hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr)
+    } else {
+      hgvs <- paste0(entry_cds, "+", (dist_dir$dist + 1))
+    }
+
+  } else if ( dist_dir$dir == '-' ) {
+    # interval is downstream of CDS on negative strand
     # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
-    entry_cds <- 1 +  dist_dir$downstream_size
-    hgvs <- paste0(entry_cds, "-", dist + 1)
+    entry_cds <- 1 +  dist_dir$upstream_size
+    if (entry_cds == 1) {
+      # upstream of CDS1 - 5' UTR?
+      hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr)
+    } else {
+      hgvs <- paste0(entry_cds, "-", dist_dir$dist + 1)
+    }
   }
   return(hgvs)
 }
 
 
-pos_five_utr <- function(bedfile, five_utr, dist_dir_cds) {
+pos_five_utr <- function(bedfile, five_utr) {
 
   dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = five_utr)
 
@@ -329,24 +343,32 @@ pos_five_utr <- function(bedfile, five_utr, dist_dir_cds) {
       "-",
       abs(pos - dist_dir_utr$nearest_end) + dist_dir_utr$downstream_size + 1
     )
-  } else if ( dist_dir_utr$index == 1 && dist_dir_utr == '-' ) {
+  } else if ( dist_dir_utr$index == 1 && dist_dir_utr$dir == '-' ) {
     # upstream of utr
     # outside UTR
     hgvs <- paste0(
       "-",
       sum(
         dist_dir_utr$downstream_size,
+        dist_dir_utr$nearest_size,
         dist_dir_utr$dist,
         1))
   } else {
     # between UTR exons
-    hgvs <- paste0(
-      "-",
-      dist_dir_utr$downstream_size,
-      dist_dir_utr$dir,
-      dist_dir_utr$dist
-    )
-  }
+    if (dist_dir_utr$dir == '-') {
+      hgvs <- paste0(
+        "-",
+        dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
+        dist_dir_utr$dir,
+        dist_dir_utr$dist )
+      } else if (dist_dir_utr$dir == '+') {
+        hgvs <- paste0(
+          "-",
+          dist_dir_utr$downstream_size,
+          dist_dir_utr$dir,
+          dist_dir_utr$dist )
+      }
+    }
   return(hgvs)
 }
 
@@ -355,8 +377,38 @@ pos_three_utr <- function() {
 
 }
 
-neg_five_utr <- function() {
 
+
+neg_five_utr <- function(bedfile, five_utr) {
+
+  dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = five_utr)
+
+  if ( dist_dir_utr == 'in' ) {
+    # within UTR exon
+    hgvs <- paste0(
+      "-",
+      abs(pos - dist_dir_utr$nearest_start) + dist_dir_utr$downstream_size + 1
+    )
+  } else {
+    # between UTR exons
+    if (dist_dir_utr$dir == '-') {
+      hgvs <- paste0(
+        "-",
+        dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
+        dist_dir_utr$dir,
+        dist_dir_utr$dist )
+    } else if (dist_dir_utr$dir == '+') {
+      # upstream of exon
+      hgvs <- paste0(
+        "-",
+        dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
+        "-",
+        dist_dir_utr$dist + 1)
+    }
+
+
+  }
+return(hgvs)
 }
 
 neg_three_utr <- function() {
@@ -414,13 +466,21 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
         upstream_size   <- IRanges::width(ranges[1:(nearest_i - 1)]) %>% sum()
       }
 
-      downstream_size <- IRanges::width(ranges[nearest_i:total_i]) %>% sum()
+      if (nearest_i == total_i) {
+        downstream_size <- 0
+      } else {
+        downstream_size <- IRanges::width(ranges[(nearest_i+1):total_i]) %>% sum()
+      }
 
     } else {
       # downstream of positive strand
       dir <- "+"
 
-      upstream_size   <- IRanges::width(ranges[1:(nearest_i)]) %>% sum()
+      if (nearest_i == 1) {
+        upstream_size <- 0
+      } else {
+        upstream_size <- IRanges::width(ranges[1:(nearest_i - 1)]) %>% sum()
+      }
 
       if (nearest_i == total_i) {
         downstream_size <- 0
