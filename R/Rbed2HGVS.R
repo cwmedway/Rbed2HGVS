@@ -42,8 +42,8 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 
     # GRangesList indexed by RefSeq
     cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)[tx_names]
-    #three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-    #five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+    three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+    five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
 
     # get cds info for start and end of bedfile
     hgvs <- getHgvs(
@@ -289,7 +289,7 @@ pos_outside_cds_positive <- function(dist_dir) {
   } else if ( dist_dir$dir == '+' ) {
     # downstream, hgvs includes nearest exon
     entry_cds <- dist_dir$upstream_size
-    if (entry_cds == total_cds) {
+    if (entry_cds == dist_dir$total_size) {
       # downstream of last CDS = could be 3'UTR
       hgvs <- pos_three_utr()
     } else {
@@ -306,8 +306,9 @@ pos_outside_cds_negative <- function(dist_dir) {
   if (dist_dir$dir == '-') {
     # interval is downstream of exon
     # hgvs should include this exon
-    entry_cds <- dist_dir$upstream_size
-    hgvs <- paste0(entry_cds, "+", dist_dir$dist + 1)
+    # because -ve strand have to add nearest exon
+    entry_cds <- dist_dir$upstream_size + dist_dir$nearest_size
+    hgvs <- paste0(entry_cds, "+", dist_dir$dist)
   } else {
     # interval is upstream of exon
     # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
@@ -318,9 +319,37 @@ pos_outside_cds_negative <- function(dist_dir) {
 }
 
 
-pos_five_utr <- function(bed) {
+pos_five_utr <- function(bedfile, five_utr, dist_dir_cds) {
 
+  dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = five_utr)
+
+  if ( dist_dir_utr == 'in' ) {
+    # within UTR exon
+    hgvs <- paste0(
+      "-",
+      abs(pos - dist_dir_utr$nearest_end) + dist_dir_utr$downstream_size + 1
+    )
+  } else if ( dist_dir_utr$index == 1 && dist_dir_utr == '-' ) {
+    # upstream of utr
+    # outside UTR
+    hgvs <- paste0(
+      "-",
+      sum(
+        dist_dir_utr$downstream_size,
+        dist_dir_utr$dist,
+        1))
+  } else {
+    # between UTR exons
+    hgvs <- paste0(
+      "-",
+      dist_dir_utr$downstream_size,
+      dist_dir_utr$dir,
+      dist_dir_utr$dist
+    )
+  }
+  return(hgvs)
 }
+
 
 pos_three_utr <- function() {
 
@@ -337,37 +366,80 @@ neg_three_utr <- function() {
 
 dist_dir_to_nearest <- function(bedfile, ranges) {
 
+  # total number of events (i.e. exons) in range object
+  total_i <- length(ranges)
+  total_size <- IRanges::width(ranges) %>% sum()
+
   pos  <- IRanges::start(bedfile)
   dist <- IRanges::distance(x = bedfile, y = ranges)
   nearest_i    <- which.min(dist)
   nearest_dist <- dist[nearest_i]
+  nearest_size <- IRanges::width(ranges[nearest_i])
 
   nearest_start <- IRanges::start(ranges[nearest_i])
   nearest_end <- IRanges::end(ranges[nearest_i])
 
+  # pos within events
   if (nearest_dist == 0) {
-    dir <- "+"
-    upstream_size <- IRanges::width(ranges[1:(nearest_i-1)]) %>% sum()
-    downstream_size <- IRanges::width(ranges[(nearest_i+1):length(cds)]) %>% sum()
-  } else if (nearest_dist != 0) {
-    pos_nearest <- IRanges::start(ranges[nearest_i])
-    if (pos < pos_nearest) {
-      dir <- "-"
-      upstream_size <- IRanges::width(ranges[1:(nearest_i)]) %>% sum()
-      downstream_size <- IRanges::width(ranges[nearest_i:length(cds)]) %>% sum()
+
+    dir <- "in"  # in = pos within event
+
+    # check if pos within first event
+    if (nearest_i == 1) {
+      # if within first event in range, there are no upstream
+      upstream_size <- 0
     } else {
+      upstream_size <- IRanges::width(ranges[1:(nearest_i-1)]) %>% sum()
+    }
+
+    # check if pos within last event
+    if (nearest_i == total_i) {
+      downstream_size <- 0
+    } else {
+      downstream_size <- IRanges::width(ranges[(nearest_i+1):total_i]) %>% sum()
+    }
+
+    # pos not within event
+  } else if (nearest_dist != 0) {
+
+    if (pos < nearest_start) {
+      # upstream on positive strand
+      dir <- "-"
+      # this may need changing - because 0-based?
+      nearest_dist <- nearest_dist + 1
+
+      if (nearest_i == 1) {
+        upstream_size <- 0
+      } else {
+        upstream_size   <- IRanges::width(ranges[1:(nearest_i - 1)]) %>% sum()
+      }
+
+      downstream_size <- IRanges::width(ranges[nearest_i:total_i]) %>% sum()
+
+    } else {
+      # downstream of positive strand
       dir <- "+"
-      upstream_size <- IRanges::width(ranges[1:nearest_i]) %>% sum()
-      downstream_size <- IRanges::width(ranges[(nearest_i+1):length(cds)]) %>% sum()
+
+      upstream_size   <- IRanges::width(ranges[1:(nearest_i)]) %>% sum()
+
+      if (nearest_i == total_i) {
+        downstream_size <- 0
+      } else {
+        # + 1 because size calculated from last cds of nearest exon
+        downstream_size <- 1 + IRanges::width(ranges[(nearest_i+1):total_i]) %>% sum()
+      }
     }
   }
   return(
     list(
       "index"=nearest_i,
+      "total_i"=total_i,
+      "total_size"=total_size,
       "upstream_size" = upstream_size,
       "downstream_size" = downstream_size,
       "nearest_start"=nearest_start,
       "nearest_end"=nearest_end,
+      "nearest_size"=nearest_size,
       "dist"=nearest_dist,
       "dir"=dir)
   )
