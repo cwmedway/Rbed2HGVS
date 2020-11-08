@@ -72,7 +72,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 
 
 
-getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
+getTranscripts <- function(preferred_tx, db, bedfile, flank_length=1000) {
 
   # GenomicRanges object of refseq transcripts
   refseq_tx <- GenomicFeatures::transcripts(x = db)
@@ -135,7 +135,7 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=150) {
   } else {
     # no preferred transcripts given
     # index of bed overlap with transcripts
-    bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx)
+    bed_ol_tx <- IRanges::findOverlaps(query = bedfile, subject = refseq_tx, maxgap = flank_length)
 
     # get transcript that overlap each bed entry
     # output should contain hgvs for these
@@ -227,26 +227,23 @@ mapCoordToCds <- function(bedfile, cds, tx_i, five_utr) {
 
 getHgvs2 <- function(bedfile, cds, five_utr) {
 
-  pos <- IRanges::start(bedfile)
-  strand <- GenomicRanges::strand(cds)[1] %>% as.character()
-
   # distance to closest CDS (-/+)
   dist_dir <- dist_dir_to_nearest(bedfile = bedfile, ranges = cds)
 
   if (dist_dir$dist == 0) {
 
     # ----- WITHIN CDS -----
-    if (strand == '+') {
-      hgvs <- pos_within_cds_positive(pos = pos, dist_dir = dist_dir, cds = cds)
-    } else if (strand == '-') {
-      hgvs <- pos_within_cds_negative(pos = pos, dist_dir = dist_dir, cds = cds)
+    if (dist_dir$strand == '+') {
+      hgvs <- pos_within_cds_positive(dist_dir = dist_dir, cds = cds)
+    } else if (dist_dir$strand == '-') {
+      hgvs <- pos_within_cds_negative(dist_dir = dist_dir, cds = cds)
     }
   } else {
 
     # ----- OUTSIDE CDS -----
-    if (strand == '+') {
+    if (dist_dir$strand == '+') {
       hgvs <- pos_outside_cds_positive(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr)
-    } else if (strand == "-") {
+    } else if (dist_dir$strand == "-") {
       hgvs <- pos_outside_cds_negative(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr)
     }
   }
@@ -257,18 +254,18 @@ getHgvs2 <- function(bedfile, cds, five_utr) {
 
 
 
-pos_within_cds_positive <- function(pos, dist_dir, cds) {
+pos_within_cds_positive <- function(dist_dir, cds) {
   # distance into cds hit
-  cds_width_hit <- (pos + 1) - dist_dir$nearest_start
+  cds_width_hit <- (dist_dir$event_bp + 1) - dist_dir$nearest_start
   # accum width of cds upstream of exon for + strand
   hgvs <- paste0(sum(cds_width_hit + dist_dir$upstream_size))
 
   return(hgvs)
 }
 
-pos_within_cds_negative <- function(pos, dist_dir, cds) {
+pos_within_cds_negative <- function(dist_dir, cds) {
   # distance into cds hit
-  cds_width_hit <- (dist_dir$nearest_end - (pos - 1))
+  cds_width_hit <- (dist_dir$nearest_end - (dist_dir$event_bp - 1))
   # accum width of cds upstream of exon for - strand
   hgvs <- paste0(sum(cds_width_hit + dist_dir$upstream_size))
   return(hgvs)
@@ -293,7 +290,7 @@ pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr) {
     entry_cds <- dist_dir$upstream_size + dist_dir$nearest_size
     if (entry_cds == dist_dir$total_size) {
       # downstream of last CDS = could be 3'UTR
-      hgvs <- pos_three_utr()
+      hgvs <- pos_three_utr(bedfile = bedfile, three_utr = three_utr)
     } else {
       # not dpwnstream of last CDS - UTR not consideration
       hgvs <- paste0(entry_cds, "+", dist_dir$dist)
@@ -337,11 +334,11 @@ pos_five_utr <- function(bedfile, five_utr) {
 
   dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = five_utr)
 
-  if ( dist_dir_utr == 'in' ) {
+  if ( dist_dir_utr$dir == 'in' ) {
     # within UTR exon
     hgvs <- paste0(
       "-",
-      abs(pos - dist_dir_utr$nearest_end) + dist_dir_utr$downstream_size + 1
+      abs(dist_dir_utr$event_bp - dist_dir_utr$nearest_end) + dist_dir_utr$downstream_size + 1
     )
   } else if ( dist_dir_utr$index == 1 && dist_dir_utr$dir == '-' ) {
     # upstream of utr
@@ -360,21 +357,55 @@ pos_five_utr <- function(bedfile, five_utr) {
         "-",
         dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
         dist_dir_utr$dir,
-        dist_dir_utr$dist )
+        dist_dir_utr$dist + 1 )
       } else if (dist_dir_utr$dir == '+') {
         hgvs <- paste0(
           "-",
           dist_dir_utr$downstream_size,
           dist_dir_utr$dir,
-          dist_dir_utr$dist )
+          dist_dir_utr$dist + 1 )
       }
     }
   return(hgvs)
 }
 
 
-pos_three_utr <- function() {
+pos_three_utr <- function(bedfile, three_utr) {
 
+  dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = three_utr)
+
+  if ( dist_dir_utr$dir == 'in' ) {
+    # within UTR exon
+    hgvs <- paste0(
+      "*",
+      abs(dist_dir_utr$event_bp - dist_dir_utr$nearest_start) + dist_dir_utr$downstream_size + 1
+    )
+  } else if ( dist_dir_utr$event_bp > IRanges::end(three_utr[length(three_utr)]))  {
+    # event_bp is downstream of final UTR exon
+    hgvs <- paste0(
+      "*",
+      sum(
+        dist_dir_utr$downstream_size,
+        dist_dir_utr$nearest_size,
+        dist_dir_utr$dist,
+        1))
+  } else {
+    # between UTR exons
+    if (dist_dir_utr$dir == '-') {
+      hgvs <- paste0(
+        "*",
+        dist_dir_utr$upstream_size + 1,
+        dist_dir_utr$dir,
+        dist_dir_utr$dist + 1)
+    } else if (dist_dir_utr$dir == '+') {
+      hgvs <- paste0(
+        "*",
+        dist_dir_utr$upstream_size + dist_dir_utr$nearest_size,
+        dist_dir_utr$dir,
+        dist_dir_utr$dist + 1)
+    }
+  }
+  return(hgvs)
 }
 
 
@@ -387,18 +418,26 @@ neg_five_utr <- function(bedfile, five_utr) {
     # within UTR exon
     hgvs <- paste0(
       "-",
-      abs(pos - dist_dir_utr$nearest_start) + dist_dir_utr$downstream_size + 1
+      abs(dist_dir_utr$event_bp - dist_dir_utr$nearest_start) + dist_dir_utr$downstream_size + 1
     )
-  } else {
+  } else if (dist_dir_utr$event_bp > IRanges::end(five_utr[1])) {
+    # upstream of first UTR exon
+    hgvs <- paste0(
+      "-",
+      dist_dir_utr$downstream_size +
+        dist_dir_utr$nearest_size +
+        dist_dir_utr$dist )
+    } else {
     # between UTR exons
     if (dist_dir_utr$dir == '-') {
+      # downstream on -ve strand
       hgvs <- paste0(
         "-",
-        dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
-        dist_dir_utr$dir,
-        dist_dir_utr$dist )
+        dist_dir_utr$downstream_size + 1,
+        '+',
+        dist_dir_utr$dist + 1 )
     } else if (dist_dir_utr$dir == '+') {
-      # upstream of exon
+      # upstream on -ve strand
       hgvs <- paste0(
         "-",
         dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
@@ -411,7 +450,44 @@ neg_five_utr <- function(bedfile, five_utr) {
 return(hgvs)
 }
 
-neg_three_utr <- function() {
+neg_three_utr <- function(bedfile, three_utr) {
+
+  dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = three_utr)
+
+  if ( dist_dir_utr$dir == 'in' ) {
+    # within UTR exon
+    hgvs <- paste0(
+      "*",
+      abs(dist_dir_utr$event_bp - dist_dir_utr$nearest_end) + dist_dir_utr$downstream_size + 1
+    )
+  } else if ( dist_dir_utr$event_bp < IRanges::start(three_utr[length(three_utr)]))  {
+    # event_bp is downstream of final UTR exon on -ve strand
+    hgvs <- paste0(
+      "*",
+      sum(
+        dist_dir_utr$total_size,
+        dist_dir_utr$dist,
+        1))
+  } else {
+    # between UTR exons
+    if (dist_dir_utr$dir == '-') {
+      # downstream on -ve strand
+      hgvs <- paste0(
+        "*",
+        dist_dir_utr$upstream_size +
+          dist_dir_utr$nearest_size,
+        "+",
+        dist_dir_utr$dist + 1)
+    } else if (dist_dir_utr$dir == '+') {
+      # upstream on -ve strand
+      hgvs <- paste0(
+        "*",
+        dist_dir_utr$upstream_size + 1,
+        '-',
+        dist_dir_utr$dist + 1)
+    }
+  }
+  return(hgvs)
 
 }
 
@@ -422,6 +498,7 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
   total_i <- length(ranges)
   total_size <- IRanges::width(ranges) %>% sum()
 
+  strand <- GenomicRanges::strand(ranges) %>% as.character() %>% .[1]
   pos  <- IRanges::start(bedfile)
   dist <- IRanges::distance(x = bedfile, y = ranges)
   nearest_i    <- which.min(dist)
@@ -457,8 +534,6 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
     if (pos < nearest_start) {
       # upstream on positive strand
       dir <- "-"
-      # this may need changing - because 0-based?
-      nearest_dist <- nearest_dist + 1
 
       if (nearest_i == 1) {
         upstream_size <- 0
@@ -492,6 +567,8 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
   }
   return(
     list(
+      "event_bp"=pos,
+      "strand"=strand,
       "index"=nearest_i,
       "total_i"=total_i,
       "total_size"=total_size,
@@ -517,3 +594,285 @@ getSymbolRefseq <- function(refSeqId) {
     return()
 }
 
+
+
+# -----------------------------
+# TESTS
+# BRCA2 (Positive Strand)
+
+
+
+
+
+test <- function(start, db, preferred_tx = 'BRCA2.preferredtx') {
+
+  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
+
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+  gene <- c("BRCA2")
+  tx   <- c("NM_000059.3")
+
+  data.frame(gene, tx) %>%
+    write.table(
+      x = .,
+      file = "BRCA2.preferredtx",
+      quote = F,
+      row.names = F,
+      col.names = F,
+      sep = "\t"
+    )
+
+  bedfile <- GenomicRanges::GRanges(seqnames = "13", ranges = IRanges::IRanges(start=start, width = 1), strand = '+')
+  tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
+  tx_names <- unique(unlist(tx$model))
+  five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  hgvs <- pos_five_utr(event_bp=GenomicRanges::start(bedfile), bedfile = bedfile, five_utr = five_utr[[1]])
+  return(hgvs)
+}
+
+run_tests <- function() {
+# 5' POSITIVE STRAND
+# between UTR exons (upstream)
+# expect -40+46
+test(start = 32889850) # PASS
+
+# between UTR exons (downstream)
+# expect -39-59
+test(start = 32890500) # PASS
+
+# upstream of UTR
+# expect -274
+test(start = 32889570) # PASS
+
+# within UTR exon
+# expect -28
+test(start = 32890570) # PASS
+}
+
+
+# 3'UTR POSITIVE STRAND
+test <- function(start, db, preferred_tx = 'BRCA2.preferredtx') {
+
+  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
+
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+  gene <- c("BRCA2")
+  tx   <- c("NM_000059.3")
+
+  data.frame(gene, tx) %>%
+    write.table(
+      x = .,
+      file = "BRCA2.preferredtx",
+      quote = F,
+      row.names = F,
+      col.names = F,
+      sep = "\t"
+    )
+
+  bedfile <- GenomicRanges::GRanges(seqnames = "13", ranges = IRanges::IRanges(start=start, width = 1), strand = '+')
+  tx <- getTranscripts(preferred_tx = './BRCA2.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
+  tx_names <- unique(unlist(tx$model))
+  five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  hgvs <- pos_three_utr(event_bp=GenomicRanges::start(bedfile), bedfile = bedfile, three_utr = three_utr[[1]])
+  return(hgvs)
+}
+
+# outside 3UTR
+# expect *1093
+test(start = 32974000) # PASS
+
+#in 3'UTR exon
+# expect *93
+test(start = 32973000)
+
+
+
+
+
+# 3'UTR POSITIVE STRAND
+test <- function(start) {
+
+  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
+
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+  gene <- c("VWA1")
+  tx   <- c("NM_199121.2")
+
+  data.frame(gene, tx) %>%
+    write.table(
+      x = .,
+      file = "VWA1.preferredtx",
+      quote = F,
+      row.names = F,
+      col.names = F,
+      sep = "\t"
+    )
+
+  bedfile <- GenomicRanges::GRanges(seqnames = "1", ranges = IRanges::IRanges(start=start, width = 1), strand = '+')
+  tx <- getTranscripts(preferred_tx = './VWA1.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
+  tx_names <- unique(unlist(tx$model))
+  three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  hgvs <- pos_three_utr(event_bp=GenomicRanges::start(bedfile), bedfile = bedfile, three_utr = three_utr[[1]])
+  return(hgvs)
+}
+
+#in 3'UTR exon
+# expect *42-461
+test(start = 1374000)
+
+#in 3'UTR exon
+# expect *41+136
+test(start = 1373000)
+
+
+
+# NEGATIVE STRAND
+
+test <- function(start) {
+
+  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
+
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+  gene <- c("BRCA1")
+  tx   <- c("NM_007300.4")
+
+  data.frame(gene, tx) %>%
+    write.table(
+      x = .,
+      file = "BRCA1.preferredtx",
+      quote = F,
+      row.names = F,
+      col.names = F,
+      sep = "\t"
+    )
+
+  bedfile <- GenomicRanges::GRanges(seqnames = "17", ranges = IRanges::IRanges(start=start, width = 1), strand = '-')
+  tx <- getTranscripts(preferred_tx = 'BRCA1.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile, flank_length = 1000)
+  tx_names <- unique(unlist(tx$model))
+  five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr[[1]])
+  return(hgvs)
+}
+
+# inside 5'UTR
+#-7
+test(start = 41276120) # PASS
+
+#-32
+test(start = 41277300) # PASS
+
+# BETWEEN UTR
+#-20+288
+test(start = 41277000) # PASS
+
+#-19-368
+test(start = 41276500) # PASS
+
+# UPSTREAM of UTR
+#-232
+test(start = 41277500) # PASS
+
+
+
+
+
+
+test <- function(start) {
+
+  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
+
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+  gene <- c("BRCA1")
+  tx   <- c("NM_007300.4")
+
+  data.frame(gene, tx) %>%
+    write.table(
+      x = .,
+      file = "BRCA1.preferredtx",
+      quote = F,
+      row.names = F,
+      col.names = F,
+      sep = "\t"
+    )
+
+  bedfile <- GenomicRanges::GRanges(seqnames = "17", ranges = IRanges::IRanges(start=start, width = 1), strand = '-')
+  tx <- getTranscripts(preferred_tx = 'BRCA1.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile, flank_length = 1000)
+  tx_names <- unique(unlist(tx$model))
+  three_utr  <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr[[1]])
+  return(hgvs)
+}
+
+# 3UTR NEGATIVE STRAND
+
+# downstream of 3UTR on -ve strand
+# expect *1395
+test(start = 41196300) # PASS
+
+# in 3UTR
+# *1295
+test(start = 41196400) # PASS
+
+# GENE ON -VE STRAND with 2 x 3UTR EXONS
+# GNG5
+test <- function(start) {
+
+  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
+
+  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+  gene <- c("GNG5")
+  tx   <- c("NM_005274.3")
+
+  data.frame(gene, tx) %>%
+    write.table(
+      x = .,
+      file = "GNG5.preferredtx",
+      quote = F,
+      row.names = F,
+      col.names = F,
+      sep = "\t"
+    )
+
+  bedfile <- GenomicRanges::GRanges(seqnames = "1", ranges = IRanges::IRanges(start=start, width = 1), strand = '-')
+  tx <- getTranscripts(preferred_tx = 'GNG5.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile, flank_length = 1000)
+  tx_names <- unique(unlist(tx$model))
+  three_utr  <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+  hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr[[1]])
+  return(hgvs)
+}
+
+# Upstream og UTR
+#*251
+test(start = 84964000) # PASS
+
+#*20-769
+test(start = 84965000)
+
+#*19+509
+test(start = 84967000)
