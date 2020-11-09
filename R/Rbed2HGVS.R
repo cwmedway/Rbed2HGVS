@@ -51,7 +51,8 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
       cds_by_tx = cds_by_tx,
       cds_ol = tx[['model']],
       ncores = ncores,
-      five_utr = five_utr
+      five_utr = five_utr,
+      three_utr = three_utr
       ) %>% do.call(rbind, .)
 
     #append HGMD
@@ -76,6 +77,10 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=1000) {
 
   # GenomicRanges object of refseq transcripts
   refseq_tx <- GenomicFeatures::transcripts(x = db)
+
+  # keep only 'NM_' transcripts
+  refseq_tx <- stringr::str_detect(string = refseq_tx$tx_name, pattern = '^NM_') %>%
+    refseq_tx[.]
 
   if (is.character(preferred_tx)) {
     # read preferred transcripts (ptx) if given
@@ -154,7 +159,7 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=1000) {
   }
 
 
-getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr) {
+getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, three_utr) {
 
   # loop over each element (bed entry)
   parallel::mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
@@ -164,15 +169,20 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr) {
     start <- GenomicRanges::start(bedfile[bedln]) - 1 # -1 because GRanges representation of BED different to UCSC (1 vs 0 based)
     end   <- GenomicRanges::end(bedfile[bedln])
 
+    message(paste0(chr, ":", start, "-", end))
+
     # if bed entry overlaps at least one transcript
     if(!isEmpty(cds_ol)[bedln]) {
 
       # loop over each tx - get exon & hgvs
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
+        message(tx_i)
         mapCoordToCds(
           bedfile = bedfile[bedln],
           cds = cds_by_tx[[tx_i]],
-          five_utr = five_utr[[tx_i]]
+          tx_i = tx_i,
+          five_utr = five_utr[[tx_i]],
+          three_utr = three_utr[[tx_i]]
           )
       })
 
@@ -196,7 +206,7 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr) {
   })
 }
 
-mapCoordToCds <- function(bedfile, cds, tx_i, five_utr) {
+mapCoordToCds <- function(bedfile, cds, tx_i, five_utr, three_utr) {
 
   # only perform if transcript has cds
   if (!is.null(cds)) {
@@ -205,8 +215,8 @@ mapCoordToCds <- function(bedfile, cds, tx_i, five_utr) {
     bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
     bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
-    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds, five_utr = five_utr)
-    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds, five_utr = five_utr)
+    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds, five_utr = five_utr, three_utr = three_utr)
+    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds, five_utr = five_utr, three_utr = three_utr)
 
     # check orientation of this transcript (samples from first cds)
     strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
@@ -225,7 +235,7 @@ mapCoordToCds <- function(bedfile, cds, tx_i, five_utr) {
 
 
 
-getHgvs2 <- function(bedfile, cds, five_utr) {
+getHgvs2 <- function(bedfile, cds, five_utr, three_utr) {
 
   # distance to closest CDS (-/+)
   dist_dir <- dist_dir_to_nearest(bedfile = bedfile, ranges = cds)
@@ -242,9 +252,9 @@ getHgvs2 <- function(bedfile, cds, five_utr) {
 
     # ----- OUTSIDE CDS -----
     if (dist_dir$strand == '+') {
-      hgvs <- pos_outside_cds_positive(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr)
+      hgvs <- pos_outside_cds_positive(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr, three_utr = three_utr)
     } else if (dist_dir$strand == "-") {
-      hgvs <- pos_outside_cds_negative(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr)
+      hgvs <- pos_outside_cds_negative(bedfile = bedfile, dist_dir = dist_dir, five_utr = five_utr, three_utr = three_utr)
     }
   }
 
@@ -271,7 +281,7 @@ pos_within_cds_negative <- function(dist_dir, cds) {
   return(hgvs)
 }
 
-pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr) {
+pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr, three_utr) {
 
   if ( dist_dir$dir == '-' ) {
     # interval is upstream of exon. hgvs should not include nearest exon
@@ -300,7 +310,7 @@ pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr) {
   return(hgvs)
 }
 
-pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr) {
+pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr, three_utr) {
 
   # upstream of CDS on negative strand
   if (dist_dir$dir == '+') {
@@ -319,9 +329,9 @@ pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr) {
     # interval is downstream of CDS on negative strand
     # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
     entry_cds <- 1 +  dist_dir$upstream_size
-    if (entry_cds == 1) {
+    if (entry_cds == dist_dir$total_size) {
       # upstream of CDS1 - 5' UTR?
-      hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr)
+      hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr)
     } else {
       hgvs <- paste0(entry_cds, "-", dist_dir$dist + 1)
     }
@@ -414,7 +424,7 @@ neg_five_utr <- function(bedfile, five_utr) {
 
   dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = five_utr)
 
-  if ( dist_dir_utr == 'in' ) {
+  if ( dist_dir_utr$dir == 'in' ) {
     # within UTR exon
     hgvs <- paste0(
       "-",
@@ -602,7 +612,7 @@ getSymbolRefseq <- function(refSeqId) {
 
 
 
-
+test <- function() {
 
 test <- function(start, db, preferred_tx = 'BRCA2.preferredtx') {
 
@@ -876,3 +886,6 @@ test(start = 84965000)
 
 #*19+509
 test(start = 84967000)
+
+
+}
