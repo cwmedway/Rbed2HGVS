@@ -293,7 +293,7 @@ pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr, three_utr) {
       hgvs <- pos_five_utr(bedfile = bedfile, five_utr = five_utr)
     } else {
       # not upstream of first CDS - UTR not a consideration
-      hgvs <- paste0(entry_cds, "-", dist_dir$dist + 1)
+      hgvs <- paste0(entry_cds, dist_dir$dir, dist_dir$dist + 1)
     }
   } else if ( dist_dir$dir == '+' ) {
     # downstream, hgvs includes nearest exon
@@ -303,7 +303,7 @@ pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr, three_utr) {
       hgvs <- pos_three_utr(bedfile = bedfile, three_utr = three_utr)
     } else {
       # not dpwnstream of last CDS - UTR not consideration
-      hgvs <- paste0(entry_cds, "+", dist_dir$dist)
+      hgvs <- paste0(entry_cds, dist_dir$dir, dist_dir$dist + 1)
     }
   }
 
@@ -322,18 +322,18 @@ pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr, three_utr) {
     if ( entry_cds == 1 ) {
       hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr)
     } else {
-      hgvs <- paste0(entry_cds, "+", (dist_dir$dist + 1))
+      hgvs <- paste0(entry_cds, "-", (dist_dir$dist + 1))
     }
 
   } else if ( dist_dir$dir == '-' ) {
     # interval is downstream of CDS on negative strand
     # hgvs shouls not includes exon. +1 because in relation to first base of nearest exon
-    entry_cds <- 1 +  dist_dir$upstream_size
+    entry_cds <- dist_dir$upstream_size + dist_dir$nearest_size #?
     if (entry_cds == dist_dir$total_size) {
       # upstream of CDS1 - 5' UTR?
       hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr)
     } else {
-      hgvs <- paste0(entry_cds, "-", dist_dir$dist + 1)
+      hgvs <- paste0(entry_cds, "+", dist_dir$dist + 1)
     }
   }
   return(hgvs)
