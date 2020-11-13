@@ -5,6 +5,7 @@
 #' @param db ucsc TxDb object
 #' @param preferred_tx path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
 #' where there are multiple preferred transcripts from a gene, these should one-row per transcript.
+#' @param ncores
 #'
 #' @return list object with [1] data.frame of HGVS [2] preferred transcripts no available in db [3] preferred transcripts with different version to db
 #' @export
