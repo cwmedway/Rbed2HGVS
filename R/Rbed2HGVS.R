@@ -11,7 +11,7 @@
 #' @export
 #' @importFrom magrittr %>%
 #' @import org.Hs.eg.db
-Rbed2HGVS <- function(bedfile, db = './R/sysdata.rda', preferred_tx = NA, ncores = NA) {
+Rbed2HGVS <- function(bedfile, db = NA, preferred_tx = NA, ncores = NA) {
 
   # set number of cores if not given
   if (is.na(ncores)) {
@@ -24,22 +24,19 @@ Rbed2HGVS <- function(bedfile, db = './R/sysdata.rda', preferred_tx = NA, ncores
     # bedfile set chromosome (X not chrX)
     GenomeInfoDb::seqlevelsStyle(bedfile) <- "NCBI"
 
-    # load refseq databases unless given
-    load(file = db)
-
     # return list[3]. [1] = list of overlapping refseq transcripts indexed by bed entry
     # [2] = preferred transcripts missing in db
     # [3] = preferred transcripts different version to db
     # [2] & [3] both NA is preferred transcripts not given
-    tx <- get_transcripts(preferred_tx = preferred_tx, tx_db = tx_db, bedfile = bedfile)
+    tx <- get_transcripts(preferred_tx = preferred_tx, tx_db = Rbed2HGVS:::tx_db, bedfile = bedfile)
 
     # get unique transcripts
     tx_names <- unique(unlist(tx$model))
 
     # GRangesList indexed by RefSeq
-    cds_by_tx <- GenomicFeatures::cdsBy(x = ucsc_hg19_ncbiRefSeq, by = "tx", use.name = T)[tx_names]
-    three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-    five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
+    cds_by_tx <- Rbed2HGVS:::cds_db[tx_names]
+    three_utr <- Rbed2HGVS:::three_utr_db[tx_names]
+    five_utr  <- Rbed2HGVS:::five_utr_db[tx_names]
 
     # get cds info for start and end of bedfile
     hgvs <- get_hgvs_from_bed(
