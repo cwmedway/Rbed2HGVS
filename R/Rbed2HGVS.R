@@ -1,8 +1,8 @@
 
 #' appends an additional column of interval in HGVS nomenclature to a bedfile
 #'
-#' @param bedfile path to bedfile
-#' @param db ucsc TxDb object
+#' @param bedfile bedfile as granges object
+#' @param db path to saved ucsc TxDb objects
 #' @param preferred_tx path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
 #' where there are multiple preferred transcripts from a gene, these should one-row per transcript.
 #' @param ncores
@@ -11,34 +11,29 @@
 #' @export
 #' @importFrom magrittr %>%
 #' @import org.Hs.eg.db
-Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
+Rbed2HGVS <- function(bedfile, db = './R/sysdata.rda', preferred_tx = NA, ncores = NA) {
 
   # set number of cores if not given
   if (is.na(ncores)) {
     ncores <- parallel::detectCores() - 1
   }
 
-  # load bedfile to GRanges and use NCBI chr convention
-  bedfile <- rtracklayer::import.bed(bedfile)
-
+  # if bedfile is not empty
   if (length(bedfile) > 0) {
 
+    # bedfile set chromosome (X not chrX)
     GenomeInfoDb::seqlevelsStyle(bedfile) <- "NCBI"
 
-    # load refseq database
-    ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-      GenomeInfoDb::keepStandardChromosomes(.)
-
-    # convert chr to NCBI style
-    GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+    # load refseq databases unless given
+    load(file = db)
 
     # return list[3]. [1] = list of overlapping refseq transcripts indexed by bed entry
     # [2] = preferred transcripts missing in db
     # [3] = preferred transcripts different version to db
     # [2] & [3] both NA is preferred transcripts not given
-    tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
+    tx <- get_transcripts(preferred_tx = preferred_tx, tx_db = tx_db, bedfile = bedfile)
 
-    #
+    # get unique transcripts
     tx_names <- unique(unlist(tx$model))
 
     # GRangesList indexed by RefSeq
@@ -47,7 +42,7 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
     five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
 
     # get cds info for start and end of bedfile
-    hgvs <- getHgvs(
+    hgvs <- get_hgvs_from_bed(
       bedfile = bedfile,
       cds_by_tx = cds_by_tx,
       cds_ol = tx[['model']],
@@ -73,15 +68,11 @@ Rbed2HGVS <- function(bedfile, db, preferred_tx = NA, ncores = NA) {
 }
 
 
-
-getTranscripts <- function(preferred_tx, db, bedfile, flank_length=1000) {
-
-  # GenomicRanges object of refseq transcripts
-  refseq_tx <- GenomicFeatures::transcripts(x = db)
+get_transcripts <- function(preferred_tx, tx_db, bedfile, flank_length=1000) {
 
   # keep only 'NM_' transcripts
-  refseq_tx <- stringr::str_detect(string = refseq_tx$tx_name, pattern = '^NM_') %>%
-    refseq_tx[.]
+  refseq_tx <- stringr::str_detect(string = tx_db$tx_name, pattern = '^NM_') %>%
+    tx_db[.]
 
   if (is.character(preferred_tx)) {
     # read preferred transcripts (ptx) if given
@@ -160,7 +151,7 @@ getTranscripts <- function(preferred_tx, db, bedfile, flank_length=1000) {
   }
 
 
-getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, three_utr) {
+get_hgvs_from_bed <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, three_utr) {
 
   # loop over each element (bed entry)
   parallel::mclapply(seq(cds_ol), mc.cores = ncores, function(bedln) {
@@ -178,7 +169,7 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, three_utr) {
       # loop over each tx - get exon & hgvs
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
         message(tx_i)
-        mapCoordToCds(
+        get_hgvs_start_end(
           bedfile = bedfile[bedln],
           cds = cds_by_tx[[tx_i]],
           tx_i = tx_i,
@@ -207,7 +198,8 @@ getHgvs <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, three_utr) {
   })
 }
 
-mapCoordToCds <- function(bedfile, cds, tx_i, five_utr, three_utr) {
+
+get_hgvs_start_end <- function(bedfile, cds, tx_i, five_utr, three_utr) {
 
   # only perform if transcript has cds
   if (!is.null(cds)) {
@@ -216,8 +208,8 @@ mapCoordToCds <- function(bedfile, cds, tx_i, five_utr, three_utr) {
     bedfile_start <- IRanges::narrow(x = bedfile, start = 1, width = 1)
     bedfile_end   <- IRanges::narrow(x = bedfile, start = -1, width = 1)
 
-    hgvs_start <- getHgvs2(bedfile = bedfile_start, cds = cds, five_utr = five_utr, three_utr = three_utr)
-    hgvs_end   <- getHgvs2(bedfile = bedfile_end, cds = cds, five_utr = five_utr, three_utr = three_utr)
+    hgvs_start <- get_hgvs(bedfile = bedfile_start, cds = cds, five_utr = five_utr, three_utr = three_utr)
+    hgvs_end   <- get_hgvs(bedfile = bedfile_end, cds = cds, five_utr = five_utr, three_utr = three_utr)
 
     # check orientation of this transcript (samples from first cds)
     strand <- GenomicRanges::strand(cds)[1] %>% as.vector()
@@ -236,7 +228,7 @@ mapCoordToCds <- function(bedfile, cds, tx_i, five_utr, three_utr) {
 
 
 
-getHgvs2 <- function(bedfile, cds, five_utr, three_utr) {
+get_hgvs <- function(bedfile, cds, five_utr, three_utr) {
 
   # distance to closest CDS (-/+)
   dist_dir <- dist_dir_to_nearest(bedfile = bedfile, ranges = cds)
@@ -420,7 +412,6 @@ pos_three_utr <- function(bedfile, three_utr) {
 }
 
 
-
 neg_five_utr <- function(bedfile, five_utr) {
 
   dist_dir_utr <- dist_dir_to_nearest(bedfile = bedfile, ranges = five_utr)
@@ -460,6 +451,7 @@ neg_five_utr <- function(bedfile, five_utr) {
   }
 return(hgvs)
 }
+
 
 neg_three_utr <- function(bedfile, three_utr) {
 
@@ -594,8 +586,6 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
 }
 
 
-
-
 getSymbolRefseq <- function(refSeqId) {
 
   # remove suffix
@@ -603,290 +593,4 @@ getSymbolRefseq <- function(refSeqId) {
     AnnotationDbi::select(org.Hs.eg.db, keytype = "REFSEQ", keys = ., columns = "SYMBOL") %>%
     .[,"SYMBOL"] %>%
     return()
-}
-
-
-
-# -----------------------------
-# TESTS
-# BRCA2 (Positive Strand)
-
-
-
-test <- function() {
-
-test <- function(start, db, preferred_tx = 'BRCA2.preferredtx') {
-
-  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
-
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
-
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-
-  gene <- c("BRCA2")
-  tx   <- c("NM_000059.3")
-
-  data.frame(gene, tx) %>%
-    write.table(
-      x = .,
-      file = "BRCA2.preferredtx",
-      quote = F,
-      row.names = F,
-      col.names = F,
-      sep = "\t"
-    )
-
-  bedfile <- GenomicRanges::GRanges(seqnames = "13", ranges = IRanges::IRanges(start=start, width = 1), strand = '+')
-  tx <- getTranscripts(preferred_tx = preferred_tx, db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
-  tx_names <- unique(unlist(tx$model))
-  five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  hgvs <- pos_five_utr(event_bp=GenomicRanges::start(bedfile), bedfile = bedfile, five_utr = five_utr[[1]])
-  return(hgvs)
-}
-
-run_tests <- function() {
-# 5' POSITIVE STRAND
-# between UTR exons (upstream)
-# expect -40+46
-test(start = 32889850) # PASS
-
-# between UTR exons (downstream)
-# expect -39-59
-test(start = 32890500) # PASS
-
-# upstream of UTR
-# expect -274
-test(start = 32889570) # PASS
-
-# within UTR exon
-# expect -28
-test(start = 32890570) # PASS
-}
-
-
-# 3'UTR POSITIVE STRAND
-test <- function(start, db, preferred_tx = 'BRCA2.preferredtx') {
-
-  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
-
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
-
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-
-  gene <- c("BRCA2")
-  tx   <- c("NM_000059.3")
-
-  data.frame(gene, tx) %>%
-    write.table(
-      x = .,
-      file = "BRCA2.preferredtx",
-      quote = F,
-      row.names = F,
-      col.names = F,
-      sep = "\t"
-    )
-
-  bedfile <- GenomicRanges::GRanges(seqnames = "13", ranges = IRanges::IRanges(start=start, width = 1), strand = '+')
-  tx <- getTranscripts(preferred_tx = './BRCA2.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
-  tx_names <- unique(unlist(tx$model))
-  five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  hgvs <- pos_three_utr(event_bp=GenomicRanges::start(bedfile), bedfile = bedfile, three_utr = three_utr[[1]])
-  return(hgvs)
-}
-
-# outside 3UTR
-# expect *1093
-test(start = 32974000) # PASS
-
-#in 3'UTR exon
-# expect *93
-test(start = 32973000)
-
-
-
-
-
-# 3'UTR POSITIVE STRAND
-test <- function(start) {
-
-  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
-
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
-
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-
-  gene <- c("VWA1")
-  tx   <- c("NM_199121.2")
-
-  data.frame(gene, tx) %>%
-    write.table(
-      x = .,
-      file = "VWA1.preferredtx",
-      quote = F,
-      row.names = F,
-      col.names = F,
-      sep = "\t"
-    )
-
-  bedfile <- GenomicRanges::GRanges(seqnames = "1", ranges = IRanges::IRanges(start=start, width = 1), strand = '+')
-  tx <- getTranscripts(preferred_tx = './VWA1.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile)
-  tx_names <- unique(unlist(tx$model))
-  three_utr <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  hgvs <- pos_three_utr(event_bp=GenomicRanges::start(bedfile), bedfile = bedfile, three_utr = three_utr[[1]])
-  return(hgvs)
-}
-
-#in 3'UTR exon
-# expect *42-461
-test(start = 1374000)
-
-#in 3'UTR exon
-# expect *41+136
-test(start = 1373000)
-
-
-
-# NEGATIVE STRAND
-
-test <- function(start) {
-
-  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
-
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
-
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-
-  gene <- c("BRCA1")
-  tx   <- c("NM_007300.4")
-
-  data.frame(gene, tx) %>%
-    write.table(
-      x = .,
-      file = "BRCA1.preferredtx",
-      quote = F,
-      row.names = F,
-      col.names = F,
-      sep = "\t"
-    )
-
-  bedfile <- GenomicRanges::GRanges(seqnames = "17", ranges = IRanges::IRanges(start=start, width = 1), strand = '-')
-  tx <- getTranscripts(preferred_tx = 'BRCA1.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile, flank_length = 1000)
-  tx_names <- unique(unlist(tx$model))
-  five_utr  <- GenomicFeatures::fiveUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr[[1]])
-  return(hgvs)
-}
-
-# inside 5'UTR
-#-7
-test(start = 41276120) # PASS
-
-#-32
-test(start = 41277300) # PASS
-
-# BETWEEN UTR
-#-20+288
-test(start = 41277000) # PASS
-
-#-19-368
-test(start = 41276500) # PASS
-
-# UPSTREAM of UTR
-#-232
-test(start = 41277500) # PASS
-
-
-
-
-
-
-test <- function(start) {
-
-  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
-
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
-
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-
-  gene <- c("BRCA1")
-  tx   <- c("NM_007300.4")
-
-  data.frame(gene, tx) %>%
-    write.table(
-      x = .,
-      file = "BRCA1.preferredtx",
-      quote = F,
-      row.names = F,
-      col.names = F,
-      sep = "\t"
-    )
-
-  bedfile <- GenomicRanges::GRanges(seqnames = "17", ranges = IRanges::IRanges(start=start, width = 1), strand = '-')
-  tx <- getTranscripts(preferred_tx = 'BRCA1.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile, flank_length = 1000)
-  tx_names <- unique(unlist(tx$model))
-  three_utr  <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr[[1]])
-  return(hgvs)
-}
-
-# 3UTR NEGATIVE STRAND
-
-# downstream of 3UTR on -ve strand
-# expect *1395
-test(start = 41196300) # PASS
-
-# in 3UTR
-# *1295
-test(start = 41196400) # PASS
-
-# GENE ON -VE STRAND with 2 x 3UTR EXONS
-# GNG5
-test <- function(start) {
-
-  db <- 'inst/extdata/ucsc_hg19_ncbiRefSeq.sqlite'
-
-  ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
-    GenomeInfoDb::keepStandardChromosomes(.)
-
-  GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
-
-  gene <- c("GNG5")
-  tx   <- c("NM_005274.3")
-
-  data.frame(gene, tx) %>%
-    write.table(
-      x = .,
-      file = "GNG5.preferredtx",
-      quote = F,
-      row.names = F,
-      col.names = F,
-      sep = "\t"
-    )
-
-  bedfile <- GenomicRanges::GRanges(seqnames = "1", ranges = IRanges::IRanges(start=start, width = 1), strand = '-')
-  tx <- getTranscripts(preferred_tx = 'GNG5.preferredtx', db = ucsc_hg19_ncbiRefSeq, bedfile = bedfile, flank_length = 1000)
-  tx_names <- unique(unlist(tx$model))
-  three_utr  <- GenomicFeatures::threeUTRsByTranscript(x = ucsc_hg19_ncbiRefSeq, use.names=T)[tx_names]
-  hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr[[1]])
-  return(hgvs)
-}
-
-# Upstream og UTR
-#*251
-test(start = 84964000) # PASS
-
-#*20-769
-test(start = 84965000)
-
-#*19+509
-test(start = 84967000)
-
-
 }
