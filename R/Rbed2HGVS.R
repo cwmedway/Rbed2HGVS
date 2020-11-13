@@ -161,7 +161,7 @@ get_hgvs_from_bed <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, thre
     message(paste0(chr, ":", start, "-", end))
 
     # if bed entry overlaps at least one transcript
-    if(!isEmpty(cds_ol)[bedln]) {
+    if(! S4Vectors::isEmpty(cds_ol)[bedln]) {
 
       # loop over each tx - get exon & hgvs
       cds_annot <- lapply(cds_ol[[bedln]], function(tx_i) {
