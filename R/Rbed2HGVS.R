@@ -378,14 +378,14 @@ pos_three_utr <- function(bedfile, three_utr) {
     # within UTR exon
     hgvs <- paste0(
       "*",
-      abs(dist_dir_utr$event_bp - dist_dir_utr$nearest_start) + dist_dir_utr$downstream_size + 1
+      abs(dist_dir_utr$event_bp - dist_dir_utr$nearest_start) + dist_dir_utr$upstream_size + 1
     )
   } else if ( dist_dir_utr$event_bp > IRanges::end(three_utr[length(three_utr)]))  {
     # event_bp is downstream of final UTR exon
     hgvs <- paste0(
       "*",
       sum(
-        dist_dir_utr$downstream_size,
+        dist_dir_utr$upstream_size,
         dist_dir_utr$nearest_size,
         dist_dir_utr$dist,
         1))
