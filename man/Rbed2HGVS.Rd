@@ -4,15 +4,17 @@
 \alias{Rbed2HGVS}
 \title{appends an additional column of interval in HGVS nomenclature to a bedfile}
 \usage{
-Rbed2HGVS(bedfile, db, preferred_tx = NA, ncores = NA)
+Rbed2HGVS(bedfile, db = NA, preferred_tx = NA, ncores = NA)
 }
 \arguments{
-\item{bedfile}{path to bedfile}
+\item{bedfile}{bedfile as granges object}
 
-\item{db}{ucsc TxDb object}
+\item{db}{path to saved ucsc TxDb objects}
 
 \item{preferred_tx}{path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
 where there are multiple preferred transcripts from a gene, these should one-row per transcript.}
+
+\item{ncores}{}
 }
 \value{
 list object with [1] data.frame of HGVS [2] preferred transcripts no available in db [3] preferred transcripts with different version to db
