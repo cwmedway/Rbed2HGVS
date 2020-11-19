@@ -53,7 +53,7 @@ check_test <- function(test, exp_hgvs, exp_exon) {
 testthat::test_that("position inside cds exon on positive strand", {
 
    out <- run_test(chr = 13, bp = 32915300, gene = "BRCA2", tx = "NM_000059.3")
-   check_test(test = out, exp_hgvs = '6808', exp_exon = "11")
+   check_test(test = out, exp_hgvs = "6808", exp_exon = "11")
 })
 
 testthat::test_that("position inside cds exon on negative strand", {
@@ -191,3 +191,23 @@ testthat::test_that("downstream of 3' UTR exon negative strand", {
    out <- run_test(chr = 1, bp = 84967000, gene = 'GNG5', tx = 'NM_005274.3')
    check_test(test = out, exp_hgvs = '*19+509', exp_exon = "3")
 })
+
+# ----- Edge Cases -----
+testthat::test_that("no interval near gene", {
+
+   out <- run_test(chr = 1, bp = 86700000)
+   testthat::expect_equal(object = out$hgvs$hgvs_start, expected = NA)
+   testthat::expect_equal(object = out$hgvs$exon_start, expected = NA)
+})
+
+
+testthat::test_that("no preferred tx found for bed entry", {
+
+   out <- run_test(chr = 17, bp = 41277000, gene = "BRCA2", 'NM_000059.3')
+   testthat::expect_equal(object = out$hgvs$hgvs_start, expected = NA)
+   testthat::expect_equal(object = out$hgvs$exon_start, expected = NA)
+})
+
+
+
+

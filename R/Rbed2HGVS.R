@@ -21,8 +21,21 @@ Rbed2HGVS <- function(bedfile, db = NA, preferred_tx = NA, ncores = NA) {
   # if bedfile is not empty
   if (length(bedfile) > 0) {
 
-    # bedfile set chromosome (X not chrX)
-    GenomeInfoDb::seqlevelsStyle(bedfile) <- "NCBI"
+    # check format of CHR is NCBI
+    chr_allow <- c( "1",  "2",  "3",
+                    "4",  "5",  "6",
+                    "7",  "8",  "9",
+                    "10", "11", "12",
+                    "13", "14", "15",
+                    "16", "17", "18",
+                    "19", "20", "21",
+                    "22", "X",  "Y",
+                    "MT" )
+
+    if( !GenomicRanges::seqnames(bedfile) %>% levels %in% chr_allow %>% all() ) {
+      # chr do not all conform
+      stop("bedfile object contains seqnames that are not NCBI format (1..22,X,Y) ")
+    }
 
     # return list[3]. [1] = list of overlapping refseq transcripts indexed by bed entry
     # [2] = preferred transcripts missing in db
@@ -49,7 +62,12 @@ Rbed2HGVS <- function(bedfile, db = NA, preferred_tx = NA, ncores = NA) {
       ) %>% do.call(rbind, .)
 
     #append HGMD
-    hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
+    if ( all(is.na(hgvs$tx)) ) {
+      hgvs$gene <- NA
+    } else {
+      hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
+    }
+
 
     list(
       "hgvs" = hgvs,
@@ -591,3 +609,4 @@ getSymbolRefseq <- function(refSeqId) {
     .[,"SYMBOL"] %>%
     return()
 }
+
