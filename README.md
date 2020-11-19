@@ -28,6 +28,12 @@ This package loads precomputed TxDb objects derived from an internal database of
 ucsc_hg19_ncbiRefSeq <- GenomicFeatures::makeTxDbFromUCSC(genome = "hg19", tablename = "ncbiRefSeq")
 
 # tidy seqnames
+ucsc_hg19_ncbiRefSeq <- AnnotationDbi::loadDb(db) %>%
+    GenomeInfoDb::keepStandardChromosomes(.)
+
+GenomeInfoDb::seqlevelsStyle(ucsc_hg19_ncbiRefSeq) <- "NCBI"
+
+# extract UTR, CDS and Tx objects from database
 
 
 
