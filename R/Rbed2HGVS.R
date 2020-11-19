@@ -1,22 +1,16 @@
 
 #' appends an additional column of interval in HGVS nomenclature to a bedfile
 #'
-#' @param bedfile bedfile as granges object
-#' @param db path to saved ucsc TxDb objects
+#' @param bedfile granges object with seqnames=(1-22,X,Y,MT)
 #' @param preferred_tx path tsv file where column1="gene symbol", column2="refseq transcript". File should be headerless /
 #' where there are multiple preferred transcripts from a gene, these should one-row per transcript.
-#' @param ncores
+#' @param ncores number of cores to use for hgvs calculation (default=1)
 #'
-#' @return list object with [1] data.frame of HGVS [2] preferred transcripts no available in db [3] preferred transcripts with different version to db
+#' @return list object with [1] data.frame of original bed appended with HGVS [2] given preferred transcripts not available in db [3] preferred transcripts with different version to db
 #' @export
 #' @importFrom magrittr %>%
 #' @import org.Hs.eg.db
-Rbed2HGVS <- function(bedfile, db = NA, preferred_tx = NA, ncores = NA) {
-
-  # set number of cores if not given
-  if (is.na(ncores)) {
-    ncores <- parallel::detectCores() - 1
-  }
+Rbed2HGVS <- function(bedfile, preferred_tx = NA, ncores = 1) {
 
   # if bedfile is not empty
   if (length(bedfile) > 0) {
