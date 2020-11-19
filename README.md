@@ -21,3 +21,9 @@ number of cores to use for hgvs calculation (default=1)
 ### Value
 list object with [1] data.frame of original bed appended with HGVS [2] given preferred transcripts not available in db [3] preferred transcripts with different version to db
 
+
+This package loads precomputed TxDb objects derived from an internal database of RefSeq transcripts. Stored data generated as follows:
+```
+
+```
+
