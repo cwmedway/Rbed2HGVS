@@ -6,7 +6,7 @@
 #' where there are multiple preferred transcripts from a gene, these should one-row per transcript.
 #' @param ncores number of cores to use for hgvs calculation (default=1)
 #'
-#' @return list object with [1] data.frame of original bed appended with HGVS [2] given preferred transcripts not available in db [3] preferred transcripts with different version to db
+#' @return list object with [1] GRanges object of original bed appended with HGVS [2] given preferred transcripts not available in db [3] preferred transcripts with different version to db
 #' @export
 #' @importFrom magrittr %>%
 #' @import org.Hs.eg.db
@@ -46,14 +46,16 @@ Rbed2HGVS <- function(bedfile, preferred_tx = NA, ncores = 1) {
     five_utr  <- Rbed2HGVS:::five_utr_db[tx_names]
 
     # get cds info for start and end of bedfile
-    hgvs <- get_hgvs_from_bed(
-      bedfile = bedfile,
-      cds_by_tx = cds_by_tx,
-      cds_ol = tx[['model']],
-      ncores = ncores,
-      five_utr = five_utr,
-      three_utr = three_utr
-      ) %>% do.call(rbind, .)
+    hgvs <- suppressWarnings(
+      get_hgvs_from_bed(
+        bedfile = bedfile,
+        cds_by_tx = cds_by_tx,
+        cds_ol = tx[['model']],
+        ncores = ncores,
+        five_utr = five_utr,
+        three_utr = three_utr
+        ) %>% do.call(c, .)
+    )
 
     #append HGMD
     if ( all(is.na(hgvs$tx)) ) {
@@ -61,7 +63,6 @@ Rbed2HGVS <- function(bedfile, preferred_tx = NA, ncores = 1) {
     } else {
       hgvs$gene <- getSymbolRefseq(refSeqId = hgvs$tx)
     }
-
 
     list(
       "hgvs" = hgvs,
@@ -167,7 +168,7 @@ get_hgvs_from_bed <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, thre
 
     # will be first three columns of output
     chr   <- GenomicRanges::seqnames(bedfile[bedln]) %>% as.vector()
-    start <- GenomicRanges::start(bedfile[bedln]) - 1 # -1 because GRanges representation of BED different to UCSC (1 vs 0 based)
+    start <- GenomicRanges::start(bedfile[bedln]) # -1 because GRanges representation of BED different to UCSC (1 vs 0 based)
     end   <- GenomicRanges::end(bedfile[bedln])
 
     message(paste0(chr, ":", start, "-", end))
@@ -202,8 +203,21 @@ get_hgvs_from_bed <- function(bedfile, cds_by_tx, cds_ol, ncores, five_utr, thre
       exon_end   <- NA
     }
 
-    data.frame(chr, start, end, tx, hgvs_start, exon_start, hgvs_end, exon_end) %>%
+    GenomicRanges::GRanges(
+      seqnames = rep(chr, length(tx)),
+      ranges =IRanges::IRanges(start = start, end = end),
+      strand = '*',
+      "tx" = tx,
+      "hgvs_start" = hgvs_start,
+      "exon_start" = exon_start,
+      "hgvs_end" = hgvs_end,
+      "exon_end" = exon_end ) %>%
       return()
+
+
+
+    #data.frame(chr, start, end, tx, hgvs_start, exon_start, hgvs_end, exon_end) %>%
+    #  return()
   })
 }
 

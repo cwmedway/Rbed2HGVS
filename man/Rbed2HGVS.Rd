@@ -15,7 +15,7 @@ where there are multiple preferred transcripts from a gene, these should one-row
 \item{ncores}{number of cores to use for hgvs calculation (default=1)}
 }
 \value{
-list object with [1] data.frame of original bed appended with HGVS [2] given preferred transcripts not available in db [3] preferred transcripts with different version to db
+list object with [1] GRanges object of original bed appended with HGVS [2] given preferred transcripts not available in db [3] preferred transcripts with different version to db
 }
 \description{
 appends an additional column of interval in HGVS nomenclature to a bedfile
