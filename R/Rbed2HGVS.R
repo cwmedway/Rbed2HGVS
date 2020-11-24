@@ -73,7 +73,12 @@ Rbed2HGVS <- function(bedfile, preferred_tx = NA, ncores = 1) {
   } else {
     # bedfile is empty
     warning("bedfile is empty")
-    return(NA)
+
+    list(
+      "hgvs" = bedfile,
+      "missing" = NA,
+      "version" = NA
+    ) %>% return()
   }
 }
 
