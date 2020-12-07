@@ -338,7 +338,7 @@ pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr, three_utr) {
     # amount of CDS upstream
     entry_cds <- dist_dir$upstream_size + 1
 
-    # if no CDS upstream - 5'UTR?
+    # if upstream of first CDS - 5'UTR?
     if ( entry_cds == 1 ) {
       hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr)
     } else {
@@ -390,7 +390,7 @@ pos_five_utr <- function(bedfile, five_utr) {
       } else if (dist_dir_utr$dir == '+') {
         hgvs <- paste0(
           "-",
-          dist_dir_utr$downstream_size,
+          dist_dir_utr$downstream_size + 1,
           dist_dir_utr$dir,
           dist_dir_utr$dist)
       }
@@ -453,7 +453,7 @@ neg_five_utr <- function(bedfile, five_utr) {
       "-",
       dist_dir_utr$downstream_size +
         dist_dir_utr$nearest_size +
-        dist_dir_utr$dist - 1)
+        dist_dir_utr$dist)
     } else {
     # between UTR exons
     if (dist_dir_utr$dir == '-') {
@@ -599,7 +599,7 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
         downstream_size <- 0
       } else {
         # + 1 because size calculated from last cds of nearest exon
-        downstream_size <- 1 + IRanges::width(ranges[(nearest_i+1):total_i]) %>% sum()
+        downstream_size <- IRanges::width(ranges[(nearest_i+1):total_i]) %>% sum()
       }
     }
   }

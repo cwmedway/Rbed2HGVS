@@ -151,7 +151,7 @@ testthat::test_that("within 5' UTR exon nagative strand", {
 
 testthat::test_that("upstream of 1st 5' UTR exon negative strand", {
 
-   out <- run_test(chr = 17, bp = 41278000, gene = 'BRCA1', tx = 'NM_007300.4')
+   out <- run_test(chr = 17, bp = 41278000, gene = 'BRCA1', tx = 'NM_007294.3')
    check_test(test = out, exp_hgvs = '-732', exp_exon = "2")
 })
 
@@ -203,9 +203,24 @@ testthat::test_that("no interval near gene", {
 
 testthat::test_that("no preferred tx found for bed entry", {
 
-   out <- run_test(chr = 17, bp = 41277000, gene = "BRCA2", 'NM_000059.3')
+   out <- run_test(chr = 17, bp = 41277000, gene = "BRCA1", 'NM_000059.3')
    testthat::expect_equal(object = out$hgvs$hgvs_start, expected = NA)
    testthat::expect_equal(object = out$hgvs$exon_start, expected = NA)
+})
+
+
+# upstream of 5UTR -ve strand
+testthat::test_that("no preferred tx found for bed entry", {
+
+   out <- run_test(chr = 17, bp = 41277382, gene = "BRCA1", tx = 'NM_007294.4')
+   testthat::expect_equal(object = out$hgvs$hgvs_start, expected = "-114") # have been getting -115
+})
+
+# upstream of 5UTR -ve strand TERT
+testthat::test_that("no preferred tx found for bed entry", {
+
+   out <- run_test(chr = 5, bp = 1295184, gene = "TERT", tx = 'NM_198253.2')
+   testthat::expect_equal(object = out$hgvs$hgvs_start, expected = "-80") # have been getting -79
 })
 
 
