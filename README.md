@@ -1,7 +1,6 @@
 # Rbed2HGVS
 
-### Description
-appends an additional column of interval in HGVS nomenclature to a bedfile
+library to support the annotation of bedfiles with HGVS information
 
 ### Usage
 `Rbed2HGVS(bedfile, preferred_tx = NA, ncores = 1)`
