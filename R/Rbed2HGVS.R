@@ -141,9 +141,8 @@ get_transcripts <- function(preferred_tx, tx_db, bedfile, flank_length=1000) {
       }
     )
 
-    return(
-      return(list("model" = cds_ol, "missing" = ptx_missing, "version" = ptx_version))
-    )
+    return(list("model" = cds_ol, "missing" = ptx_missing, "version" = ptx_version))
+
   } else {
     # no preferred transcripts given
     # index of bed overlap with transcripts
@@ -314,7 +313,7 @@ pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr, three_utr) {
       hgvs <- pos_five_utr(bedfile = bedfile, five_utr = five_utr)
     } else {
       # not upstream of first CDS - UTR not a consideration
-      hgvs <- paste0(entry_cds, dist_dir$dir, dist_dir$dist + 1)
+      hgvs <- paste0(entry_cds, dist_dir$dir, dist_dir$dist)
     }
   } else if ( dist_dir$dir == '+' ) {
     # downstream, hgvs includes nearest exon
@@ -324,7 +323,7 @@ pos_outside_cds_positive <- function(bedfile, dist_dir, five_utr, three_utr) {
       hgvs <- pos_three_utr(bedfile = bedfile, three_utr = three_utr)
     } else {
       # not dpwnstream of last CDS - UTR not consideration
-      hgvs <- paste0(entry_cds, dist_dir$dir, dist_dir$dist + 1)
+      hgvs <- paste0(entry_cds, dist_dir$dir, dist_dir$dist)
     }
   }
 
@@ -343,7 +342,7 @@ pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr, three_utr) {
     if ( entry_cds == 1 ) {
       hgvs <- neg_five_utr(bedfile = bedfile, five_utr = five_utr)
     } else {
-      hgvs <- paste0(entry_cds, "-", (dist_dir$dist + 1))
+      hgvs <- paste0(entry_cds, "-", (dist_dir$dist))
     }
 
   } else if ( dist_dir$dir == '-' ) {
@@ -354,7 +353,7 @@ pos_outside_cds_negative <- function(bedfile, dist_dir, five_utr, three_utr) {
       # upstream of CDS1 - 5' UTR?
       hgvs <- neg_three_utr(bedfile = bedfile, three_utr = three_utr)
     } else {
-      hgvs <- paste0(entry_cds, "+", dist_dir$dist + 1)
+      hgvs <- paste0(entry_cds, "+", dist_dir$dist)
     }
   }
   return(hgvs)
@@ -379,8 +378,7 @@ pos_five_utr <- function(bedfile, five_utr) {
       sum(
         dist_dir_utr$downstream_size,
         dist_dir_utr$nearest_size,
-        dist_dir_utr$dist,
-        1))
+        dist_dir_utr$dist))
   } else {
     # between UTR exons
     if (dist_dir_utr$dir == '-') {
@@ -388,13 +386,13 @@ pos_five_utr <- function(bedfile, five_utr) {
         "-",
         dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
         dist_dir_utr$dir,
-        dist_dir_utr$dist + 1 )
+        dist_dir_utr$dist)
       } else if (dist_dir_utr$dir == '+') {
         hgvs <- paste0(
           "-",
           dist_dir_utr$downstream_size,
           dist_dir_utr$dir,
-          dist_dir_utr$dist + 1 )
+          dist_dir_utr$dist)
       }
     }
   return(hgvs)
@@ -418,8 +416,7 @@ pos_three_utr <- function(bedfile, three_utr) {
       sum(
         dist_dir_utr$upstream_size,
         dist_dir_utr$nearest_size,
-        dist_dir_utr$dist,
-        1))
+        dist_dir_utr$dist))
   } else {
     # between UTR exons
     if (dist_dir_utr$dir == '-') {
@@ -427,13 +424,13 @@ pos_three_utr <- function(bedfile, three_utr) {
         "*",
         dist_dir_utr$upstream_size + 1,
         dist_dir_utr$dir,
-        dist_dir_utr$dist + 1)
+        dist_dir_utr$dist)
     } else if (dist_dir_utr$dir == '+') {
       hgvs <- paste0(
         "*",
         dist_dir_utr$upstream_size + dist_dir_utr$nearest_size,
         dist_dir_utr$dir,
-        dist_dir_utr$dist + 1)
+        dist_dir_utr$dist)
     }
   }
   return(hgvs)
@@ -456,7 +453,7 @@ neg_five_utr <- function(bedfile, five_utr) {
       "-",
       dist_dir_utr$downstream_size +
         dist_dir_utr$nearest_size +
-        dist_dir_utr$dist )
+        dist_dir_utr$dist - 1)
     } else {
     # between UTR exons
     if (dist_dir_utr$dir == '-') {
@@ -465,14 +462,14 @@ neg_five_utr <- function(bedfile, five_utr) {
         "-",
         dist_dir_utr$downstream_size + 1,
         '+',
-        dist_dir_utr$dist + 1 )
+        dist_dir_utr$dist)
     } else if (dist_dir_utr$dir == '+') {
       # upstream on -ve strand
       hgvs <- paste0(
         "-",
         dist_dir_utr$downstream_size + dist_dir_utr$nearest_size,
         "-",
-        dist_dir_utr$dist + 1)
+        dist_dir_utr$dist)
     }
 
 
@@ -497,8 +494,7 @@ neg_three_utr <- function(bedfile, three_utr) {
       "*",
       sum(
         dist_dir_utr$total_size,
-        dist_dir_utr$dist,
-        1))
+        dist_dir_utr$dist))
   } else {
     # between UTR exons
     if (dist_dir_utr$dir == '-') {
@@ -508,14 +504,14 @@ neg_three_utr <- function(bedfile, three_utr) {
         dist_dir_utr$upstream_size +
           dist_dir_utr$nearest_size,
         "+",
-        dist_dir_utr$dist + 1)
+        dist_dir_utr$dist)
     } else if (dist_dir_utr$dir == '+') {
       # upstream on -ve strand
       hgvs <- paste0(
         "*",
         dist_dir_utr$upstream_size + 1,
         '-',
-        dist_dir_utr$dist + 1)
+        dist_dir_utr$dist)
     }
   }
   return(hgvs)
@@ -535,9 +531,20 @@ dist_dir_to_nearest <- function(bedfile, ranges) {
   nearest_i    <- which.min(dist)
   nearest_dist <- dist[nearest_i]
   nearest_size <- IRanges::width(ranges[nearest_i])
-
   nearest_start <- IRanges::start(ranges[nearest_i])
   nearest_end <- IRanges::end(ranges[nearest_i])
+
+  # if dist = 0 this may be adjacent and not an overlap need to check
+  if ( nearest_dist == 0 ) {
+    if ( IRanges::overlapsAny(query = bedfile, subject = ranges[nearest_i]) ) {
+      # is overlap - dist can stay as 0
+    } else {
+        nearest_dist <- nearest_dist + 1
+    }
+  } else {
+    nearest_dist <- nearest_dist + 1
+  }
+
 
   # pos within events
   if (nearest_dist == 0) {
