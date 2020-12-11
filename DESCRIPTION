@@ -1,11 +1,10 @@
 Package: Rbed2HGVS
 Type: Package
 Title: Annotated bedfiles with Transcript, CDS and Exon information
-Version: 0.1.0
+Version: 0.4.0
 Author: Christopher Medway
 Maintainer: The package maintainer <christophermedway@gmail.com>
-Description: More about what it does (maybe more than one line)
-    Use four spaces when indenting paragraphs within the Description.
+Description: Annotated bedfiles with Transcript, CDS and Exon information
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
